@@ -301,7 +301,9 @@ package body WNM.GUI.Menu.Track_Settings is
             Draw_Value (Project.Img (Project.Arp_Notes (T)));
 
          when Notes_Per_Chord =>
-            Draw_Title ("Notes per Chord:", "");
+            Draw_Title ("Chord Mode: " &
+                          Project.Img (Project.Chord_Voicing (T)),
+                        "");
             Draw_Value (Project.Notes_Per_Chord (T)'Img);
 
          when MIDI_Chan =>
@@ -533,6 +535,9 @@ package body WNM.GUI.Menu.Track_Settings is
                when LFO_Shape =>
                   Project.LFO_Toggle_Loop (T);
 
+               when Notes_Per_Chord =>
+                  Project.Chord_Voicing_Next (T);
+
                when others =>
                   null;
             end case;
@@ -542,6 +547,9 @@ package body WNM.GUI.Menu.Track_Settings is
                   Project.LFO_Toggle_Sync (T);
                when LFO_Amplitude =>
                   Project.LFO_Amp_Mode_Prev (T);
+
+               when Notes_Per_Chord =>
+                  Project.Chord_Voicing_Prev (T);
 
                when others =>
                   null;

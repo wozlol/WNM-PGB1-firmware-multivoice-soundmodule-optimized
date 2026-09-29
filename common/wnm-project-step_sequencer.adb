@@ -415,12 +415,20 @@ package body WNM.Project.Step_Sequencer is
 
          when Note_In_Chord =>
 
-            Play_Note (T,
-                       Offset
-                         (Current_Chord (Chord_Index_Range (Step.Note)),
-                          Octave),
-                       Step.Velo, Step.Repeat,
-                       Now, Shuffle, Repeat_Duration, Repeat_Span);
+            if G_Project.Tracks (T).Chord_Voicing = Direct_Poly then
+               --  Direct Poly: play the step's own literal note instead of
+               --  substituting a tone from the harmonized chord.
+               Play_Note (T, Offset (Step.Note, Octave),
+                          Step.Velo, Step.Repeat,
+                          Now, Shuffle, Repeat_Duration, Repeat_Span);
+            else
+               Play_Note (T,
+                          Offset
+                            (Current_Chord (Chord_Index_Range (Step.Note)),
+                             Octave),
+                          Step.Velo, Step.Repeat,
+                          Now, Shuffle, Repeat_Duration, Repeat_Span);
+            end if;
 
          when Arp =>
 
@@ -430,12 +438,22 @@ package body WNM.Project.Step_Sequencer is
 
          when Chord =>
 
-            Play_Chord
-              (T, Current_Chord,
-               G_Project.Tracks (T).Notes_Per_Chord,
-               Octave,
-               Step.Velo, Step.Repeat,
-               Now, Shuffle, Repeat_Duration, Repeat_Span);
+            if G_Project.Tracks (T).Chord_Voicing = Direct_Poly then
+               --  Direct Poly: play the step's own literal note instead of
+               --  the generated chord tones. Live-played notes already
+               --  reach the Chord voices directly regardless of this
+               --  setting.
+               Play_Note (T, Offset (Step.Note, Octave),
+                          Step.Velo, Step.Repeat,
+                          Now, Shuffle, Repeat_Duration, Repeat_Span);
+            else
+               Play_Chord
+                 (T, Current_Chord,
+                  G_Project.Tracks (T).Notes_Per_Chord,
+                  Octave,
+                  Step.Velo, Step.Repeat,
+                  Now, Shuffle, Repeat_Duration, Repeat_Span);
+            end if;
       end case;
 
    end Play_Step;

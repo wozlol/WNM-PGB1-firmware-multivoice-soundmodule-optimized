@@ -66,12 +66,22 @@ private
 
           --  Multi engines
           when Project.Lead_Mode | Project.Bass_Mode | Project.Kick_Mode |
-               Project.Snare_Mode | Project.Hihat_Mode | Project.Chord_Mode |
+               Project.Snare_Mode | Project.Hihat_Mode |
                Project.Sample1_Mode | Project.Sample2_Mode =>
              S in Track_Mode | Engine | Volume | Pan | Master_FX | Arp_Mode |
                   Track_Octave_Offset | Shuffle |
                   Arp_Notes | CC_Default_A .. CC_Default_D |
                   LFO_Rate | LFO_Amplitude | LFO_Target | LFO_Shape,
+
+          --  Chord engine: same as the other multi engines, plus the
+          --  Chord-specific settings (notes per chord and chord voicing
+          --  mode, both edited from the "Notes per Chord" screen).
+          when Project.Chord_Mode =>
+             S in Track_Mode | Engine | Volume | Pan | Master_FX | Arp_Mode |
+                  Track_Octave_Offset | Shuffle |
+                  Arp_Notes | CC_Default_A .. CC_Default_D |
+                  LFO_Rate | LFO_Amplitude | LFO_Target | LFO_Shape |
+                  Notes_Per_Chord,
 
           --  Effects
           when Project.Reverb_Mode | Project.Drive_Mode |

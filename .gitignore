@@ -26,3 +26,6 @@ _autosave-*
 *.stdout
 
 .venv/
+
+# Local firmware build output (.uf2/.elf), not tracked in git
+builds/

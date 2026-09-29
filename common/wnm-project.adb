@@ -912,6 +912,13 @@ package body WNM.Project is
    function LFO_Amp_Mode (T : Tracks) return LFO_Amp_Kind
    is (G_Project.Tracks (T).LFO_Amp_Mode);
 
+   -------------------
+   -- Chord_Voicing --
+   -------------------
+
+   function Chord_Voicing (T : Tracks) return Chord_Voicing_Kind
+   is (G_Project.Tracks (T).Chord_Voicing);
+
    ---------------------
    -- CC_Value_To_Use --
    ---------------------
@@ -1470,6 +1477,24 @@ package body WNM.Project is
       Prev (G_Project.Tracks (T).LFO_Amp_Mode);
       Synchronize_Synth_Setting (T, LFO_Amp_Mode);
    end LFO_Amp_Mode_Prev;
+
+   ------------------------
+   -- Chord_Voicing_Next --
+   ------------------------
+
+   procedure Chord_Voicing_Next (T : Tracks) is
+   begin
+      Next (G_Project.Tracks (T).Chord_Voicing);
+   end Chord_Voicing_Next;
+
+   ------------------------
+   -- Chord_Voicing_Prev --
+   ------------------------
+
+   procedure Chord_Voicing_Prev (T : Tracks) is
+   begin
+      Prev (G_Project.Tracks (T).Chord_Voicing);
+   end Chord_Voicing_Prev;
 
    ----------
    -- Link --

@@ -72,18 +72,14 @@ package body WNM.Voices.Chord_Voice is
    begin
       for V of This.Voices loop
          V.On := False;
-
          V.Phase := 0;
+         V.Age := 0;
+         V.Pending := False;
+         V.Pending_Wait := 0;
+         Envelopes.AR.Init (V.Env, Do_Hold => True);
       end loop;
-
-      Envelopes.AR.Init (This.Env, Do_Hold => True);
-
-      Init (This.Glide_Env, Do_Hold => False,
-            Attack_Speed  => Envelopes.AR.S_Quarter_Second,
-            Release_Curve => Envelopes.AR.Exponential,
-            Release_Speed => Envelopes.AR.S_1_Seconds);
-      Set_Attack (This.Glide_Env, 0);
-
+      This.Next_Age := 0;
+      This.Shadow_Count := 0;
    end Init;
 
    ----------------
@@ -130,8 +126,8 @@ package body WNM.Voices.Chord_Voice is
         Voice_Wave (This, Wave_Select, 4);
 
       Sample : S32;
-      Diff, Moded : U32;
-      Amount : Param_Range;
+
+      All_Dead : Boolean := True;
    begin
 
       if This.Do_Init then
@@ -139,29 +135,22 @@ package body WNM.Voices.Chord_Voice is
          This.Init;
       end if;
 
-      Set_Attack (This.Env, This.Params (P_Attack));
-      Set_Release (This.Env, This.Params (P_Release));
-
-      Set_Release (This.Glide_Env, This.Params (P_Glide));
-      Render (This.Glide_Env);
-
-      Amount :=
-        Param_Range'Last - Param_Range (Render (This.Glide_Env));
-
       for V of This.Voices loop
-         if V.Target_Phase_Incr > V.Start_Phase_Incr then
-            Diff := V.Target_Phase_Incr - V.Start_Phase_Incr;
-            Moded := DSP.Modulate (Diff, Amount);
-            V.Current_Phase_Incr := V.Start_Phase_Incr + Moded;
-         else
-            Diff := V.Start_Phase_Incr - V.Target_Phase_Incr;
-            Moded := DSP.Modulate (Diff, Amount);
-            V.Current_Phase_Incr := V.Start_Phase_Incr - Moded;
+         Set_Attack (V.Env, This.Params (P_Attack));
+         Set_Release (V.Env, This.Params (P_Release));
+         --  A voice with a pending note (its envelope hasn't been
+         --  triggered yet, that only happens once its Pending transition
+         --  resolves inside the per-sample loop below) must still count
+         --  as "not dead" here, or the per-sample loop that would
+         --  actually resolve it never runs and the voice is stuck silent.
+         if V.Pending
+           or else Envelopes.AR.Current_Segment (V.Env) /= Envelopes.AR.Dead
+         then
+            All_Dead := False;
          end if;
-
       end loop;
 
-      if Envelopes.AR.Current_Segment (This.Env) = Envelopes.AR.Dead then
+      if All_Dead then
          Buffer := (others => 0);
       else
 
@@ -171,33 +160,170 @@ package body WNM.Voices.Chord_Voice is
             V3 : Voice renames This.Voices (Voice_Id'First + 2);
             V4 : Voice renames This.Voices (Voice_Id'First + 3);
 
-            S1, S2, S3, S4 : S16;
+            S1, S2, S3, S4 : S32;
+
+            function Voice_Sample
+              (V        : in out Voice;
+               Waveform : not null access constant Table_257_S16)
+               return S32
+            is
+            begin
+               --  A voice that isn't held, isn't waiting on a pending
+               --  reassignment, and has fully finished its own envelope
+               --  is contributing nothing: skip the waveform lookup and
+               --  envelope processing for it entirely instead of doing
+               --  that work uselessly every sample. With 4 independent
+               --  per-voice envelopes now, doing this for genuinely idle
+               --  voices adds up and risked missing the audio deadline,
+               --  which sounds like a "random" pop unrelated to any
+               --  particular note event.
+               if not V.On and then not V.Pending
+                 and then Envelopes.AR.Current_Segment (V.Env) =
+                            Envelopes.AR.Dead
+               then
+                  return 0;
+               end if;
+
+               declare
+                  Raw : constant S16 :=
+                    DSP.Interpolate824 (Waveform.all, V.Phase);
+               begin
+                  --  A voice being reassigned (stolen, or revived from the
+                  --  shadow queue) can't just wait for its outgoing note
+                  --  to release, that would defeat the point of stealing.
+                  --  But switching pitch and re-triggering the envelope
+                  --  immediately can pop: the outgoing note could be at
+                  --  any waveform value and any envelope level. So instead
+                  --  the outgoing note keeps rendering completely normally
+                  --  until its own waveform comes near zero (Pending_Wait
+                  --  bounds how long we wait, in case an unusual waveform
+                  --  rarely comes near zero), and only then do we actually
+                  --  switch to the new pitch and trigger its envelope.
+                  if V.Pending then
+                     if abs Integer (Raw) <= Integer (Near_Zero)
+                       or else V.Pending_Wait >= Max_Pending_Wait
+                     then
+                        V.Target_Phase_Incr :=
+                          DSP.Compute_Phase_Increment
+                            (S16 (Tresses.MIDI_Pitch (V.Pending_Key)));
+                        --  Glide was tried here (stepping toward Target
+                        --  gradually) and pulled back out: it added
+                        --  per-sample cost to every voice and caused
+                        --  audible artifacts. Snap directly for now;
+                        --  revisit glide later as its own focused pass.
+                        V.Current_Phase_Incr := V.Target_Phase_Incr;
+
+                        Envelopes.AR.On (V.Env, V.Pending_Velocity);
+                        V.Pending := False;
+                     else
+                        V.Pending_Wait := V.Pending_Wait + 1;
+                     end if;
+                  end if;
+
+                  Envelopes.AR.Render (V.Env);
+                  return (S32 (Raw) * Low_Pass (V.Env)) / 2 ** 15;
+               end;
+            end Voice_Sample;
          begin
             for Elt of Buffer loop
-
-               --  We render the glide envelope for every sample to not have
-               --  it depend on the size of the buffer.
-               Render (This.Glide_Env);
 
                V1.Phase := V1.Phase + V1.Current_Phase_Incr;
                V2.Phase := V2.Phase + V2.Current_Phase_Incr;
                V3.Phase := V3.Phase + V3.Current_Phase_Incr;
                V4.Phase := V4.Phase + V4.Current_Phase_Incr;
 
-               S1 := DSP.Interpolate824 (Waveform_1.all, V1.Phase);
-               S2 := DSP.Interpolate824 (Waveform_2.all, V2.Phase);
-               S3 := DSP.Interpolate824 (Waveform_3.all, V3.Phase);
-               S4 := DSP.Interpolate824 (Waveform_4.all, V4.Phase);
+               S1 := Voice_Sample (V1, Waveform_1);
+               S2 := Voice_Sample (V2, Waveform_2);
+               S3 := Voice_Sample (V3, Waveform_3);
+               S4 := Voice_Sample (V4, Waveform_4);
 
-               Sample := (S32 (S1) + S32 (S2) + S32 (S3) + S32 (S4)) / 4;
-               Envelopes.AR.Render (This.Env);
-               Sample := (Sample * Low_Pass (This.Env)) / 2**15;
+               Sample := (S1 + S2 + S3 + S4) / 4;
 
                Elt := S16 (DSP.Clip_S16 (Sample));
             end loop;
          end;
       end if;
    end Render;
+
+   ------------------
+   -- Request_Note --
+   ------------------
+
+   procedure Request_Note (This     : in out Instance;
+                           Id       :        Voice_Id;
+                           Key      :        MIDI.MIDI_Key;
+                           Velocity :        Tresses.Param_Range)
+   is
+      V : Voice renames This.Voices (Id);
+   begin
+      --  Bookkeeping (which note this voice belongs to, voice-stealing
+      --  age, held state) updates immediately: Key_Off matching and
+      --  Key_On's oldest-voice search both need this to be current right
+      --  away. Only the audio-level pitch/envelope switch is deferred,
+      --  to a safe near-zero point in the outgoing waveform (see
+      --  Voice_Sample), so instant note-stealing feedback doesn't pop.
+      V.Note := Key;
+      V.Velocity := Velocity;
+      V.On := True;
+      V.Age := This.Next_Age;
+      This.Next_Age := This.Next_Age + 1;
+
+      V.Pending := True;
+      V.Pending_Key := Key;
+      V.Pending_Velocity := Velocity;
+      V.Pending_Wait := 0;
+   end Request_Note;
+
+   -----------------
+   -- Push_Shadow --
+   -----------------
+
+   procedure Push_Shadow (This     : in out Instance;
+                          Key      :        MIDI.MIDI_Key;
+                          Velocity :        Tresses.Param_Range)
+   is
+      use type MIDI.MIDI_UInt8;
+   begin
+      for I in 1 .. This.Shadow_Count loop
+         if This.Shadow (I).Key = Key then
+            --  Already tracked (shouldn't normally happen), don't
+            --  duplicate.
+            return;
+         end if;
+      end loop;
+
+      if This.Shadow_Count = Shadow_Depth then
+         --  Forget the oldest shadow note to make room.
+         This.Shadow (1 .. Shadow_Depth - 1) :=
+           This.Shadow (2 .. Shadow_Depth);
+         This.Shadow_Count := This.Shadow_Count - 1;
+      end if;
+
+      This.Shadow_Count := This.Shadow_Count + 1;
+      This.Shadow (This.Shadow_Count) := (Key => Key, Velocity => Velocity);
+   end Push_Shadow;
+
+   -------------------
+   -- Remove_Shadow --
+   -------------------
+
+   function Remove_Shadow (This : in out Instance; Key : MIDI.MIDI_Key)
+                           return Boolean
+   is
+      use type MIDI.MIDI_UInt8;
+   begin
+      for I in 1 .. This.Shadow_Count loop
+         if This.Shadow (I).Key = Key then
+            if I < This.Shadow_Count then
+               This.Shadow (I .. This.Shadow_Count - 1) :=
+                 This.Shadow (I + 1 .. This.Shadow_Count);
+            end if;
+            This.Shadow_Count := This.Shadow_Count - 1;
+            return True;
+         end if;
+      end loop;
+      return False;
+   end Remove_Shadow;
 
    ------------
    -- Key_On --
@@ -207,70 +333,75 @@ package body WNM.Voices.Chord_Voice is
                      Key      :       MIDI.MIDI_Key;
                      Velocity :       Tresses.Param_Range)
    is
-      On_Before : constant Boolean := (for some V of This.Voices => V.On);
-
-      procedure Start_Voice (Id : Voice_Id) is
-         V : Voice renames This.Voices (Id);
-      begin
-         V.Target_Phase_Incr :=
-           DSP.Compute_Phase_Increment (S16 (Tresses.MIDI_Pitch (Key)));
-
-         if V.Current_Phase_Incr = 0 then
-            V.Current_Phase_Incr := V.Target_Phase_Incr;
-            V.Start_Phase_Incr := V.Target_Phase_Incr;
-         else
-            V.Start_Phase_Incr := V.Current_Phase_Incr;
-         end if;
-
-         V.Note := Key;
-         V.On := True;
-
-         if not On_Before then
-            Envelopes.AR.On (This.Env, Velocity);
-            Envelopes.AR.On (This.Glide_Env, Velocity);
-         end if;
-      end Start_Voice;
-
+      Oldest : Voice_Id := Voice_Id'First;
    begin
 
       --  Try to find a free voice
       for Id in This.Voices'Range loop
          if not This.Voices (Id).On then
-            Start_Voice (Id);
+            Request_Note (This, Id, Key, Velocity);
             return;
          end if;
       end loop;
 
-      --  All voices are in use, just pick the next one...
-      Start_Voice (This.Next);
+      --  All voices are in use: steal the oldest one for instant
+      --  feedback, but remember the note it was playing so it can be
+      --  revived into the next voice that frees up (see Shadow_Depth).
+      for Id in This.Voices'Range loop
+         if This.Voices (Id).Age < This.Voices (Oldest).Age then
+            Oldest := Id;
+         end if;
+      end loop;
 
-      if This.Next = Voice_Id'Last then
-         This.Next := Voice_Id'First;
-      else
-         This.Next := This.Next + 1;
-      end if;
+      Push_Shadow (This,
+                   This.Voices (Oldest).Note,
+                   This.Voices (Oldest).Velocity);
+      Request_Note (This, Oldest, Key, Velocity);
    end Key_On;
 
    --------------
-   -- Note_Off --
+   -- Key_Off --
    --------------
 
    procedure Key_Off (This : in out Instance;
                        Key  :        MIDI.MIDI_Key)
    is
       use MIDI;
-
    begin
-      for V of This.Voices loop
-         if V.On and then V.Note = Key then
-            V.On := False;
+      --  A shadow (held but never sounding, voice-stolen) note being
+      --  released has no audio effect: just stop tracking it.
+      if Remove_Shadow (This, Key) then
+         return;
+      end if;
+
+      for Id in This.Voices'Range loop
+         if This.Voices (Id).On and then This.Voices (Id).Note = Key then
+            This.Voices (Id).On := False;
+
+            if This.Shadow_Count > 0 then
+               --  Another note is waiting because it got voice-stolen
+               --  while still held: revive it into this freed voice
+               --  right away (with its own fresh Attack), like a classic
+               --  4-voice poly synth's note memory, instead of releasing
+               --  this voice.
+               declare
+                  Next : constant Shadow_Entry :=
+                    This.Shadow (This.Shadow_Count);
+               begin
+                  This.Shadow_Count := This.Shadow_Count - 1;
+                  Request_Note (This, Id, Next.Key, Next.Velocity);
+               end;
+            else
+               --  Let this voice's own envelope handle the fade-out: it
+               --  is a continuous amplitude multiplier, so there is no
+               --  discontinuity to click regardless of where in the
+               --  waveform's cycle release happens, and it follows the
+               --  same Attack/Release settings as every other voice.
+               Envelopes.AR.Off (This.Voices (Id).Env);
+            end if;
+            exit;
          end if;
       end loop;
-
-      if (for all V of This.Voices => not V.On) then
-         Envelopes.AR.Off (This.Env);
-         Envelopes.AR.Off (This.Glide_Env);
-      end if;
    end Key_Off;
 
 end WNM.Voices.Chord_Voice;

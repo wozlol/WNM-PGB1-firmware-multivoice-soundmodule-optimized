@@ -369,6 +369,9 @@ package body WNM.Project.Storage is
                   when Notes_Per_Chord =>
                      Output.Push (Out_UInt (Track.Notes_Per_Chord'Enum_Rep));
 
+                  when Chord_Voicing =>
+                     Output.Push (Out_UInt (Track.Chord_Voicing'Enum_Rep));
+
                   when MIDI_Chan =>
                      Output.Push (Out_UInt (Track.Chan));
 
@@ -725,6 +728,7 @@ package body WNM.Project.Storage is
       procedure Read is new File_In.Read_Gen_Int
         (Chord_Settings.Chord_Index_Range);
       procedure Read is new File_In.Read_Gen_Int (Shuffle_Value);
+      procedure Read is new File_In.Read_Gen_Enum (Chord_Voicing_Kind);
 
       T_Id : Tracks;
       S : Track_Settings;
@@ -785,6 +789,7 @@ package body WNM.Project.Storage is
                when Arp_Mode    => Read (Input, Track.Arp_Mode);
                when Arp_Notes   => Read (Input, Track.Arp_Notes);
                when Notes_Per_Chord => Read (Input, Track.Notes_Per_Chord);
+               when Chord_Voicing => Read (Input, Track.Chord_Voicing);
                when MIDI_Chan   => Read (Input, Track.Chan);
                when MIDI_Instrument => null;
                when CC_Default_A => Read (Input, Track.CC (A).Value);

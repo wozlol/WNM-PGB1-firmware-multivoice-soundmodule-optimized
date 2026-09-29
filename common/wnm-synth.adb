@@ -35,6 +35,7 @@ with Tresses.Interfaces;
 
 with WNM.Generic_Queue;
 with WNM.Utils;
+with WNM.Note_Priority;
 
 with WNM.Shared_Buffers;
 
@@ -225,7 +226,10 @@ package body WNM.Synth is
                  others          => 0));
    Out_Voice_Parameters : Voice_Parameters_Array := (others => (others => 0));
 
-   Last_Key : array (MIDI.MIDI_Channel) of MIDI.MIDI_Key := (others => 0);
+   --  Last-note-priority mono retrig for every synth channel except Chord
+   --  (which already has its own independent per-voice Key_On/Key_Off).
+   --  Always on, no user setting: see WNM.Note_Priority.
+   Note_Prio : array (Tresses_Channels) of WNM.Note_Priority.Instance;
 
    FX_Send : array (MIDI.MIDI_Channel) of FX_Kind := (others => Bypass);
 
@@ -480,7 +484,11 @@ package body WNM.Synth is
                            Voice.Note_On (Tresses.MIDI_Param
                                           (Msg.MIDI_Evt.Velocity));
 
-                           Last_Key (Msg.MIDI_Evt.Chan) := Key;
+                           if Msg.MIDI_Evt.Chan /= Chord_Channel then
+                              WNM.Note_Priority.Note_On
+                                (Note_Prio (Msg.MIDI_Evt.Chan),
+                                 Key, Msg.MIDI_Evt.Velocity);
+                           end if;
 
                            if LFO_Syncs (Msg.MIDI_Evt.Chan) then
                               LFOs (Msg.MIDI_Evt.Chan).Sync;
@@ -495,11 +503,34 @@ package body WNM.Synth is
                            if Msg.MIDI_Evt.Chan = Chord_Channel then
                               Chord.Key_Off (Msg.MIDI_Evt.Key);
 
-                           elsif Last_Key (Msg.MIDI_Evt.Chan) = Key then
-                              --  Only apply note_off if it matches the last
-                              --  played key.
-                              Voice.Note_Off;
-                              Last_Key (Msg.MIDI_Evt.Chan) := 0;
+                           else
+                              declare
+                                 Result : WNM.Note_Priority.Off_Result;
+                              begin
+                                 WNM.Note_Priority.Note_Off
+                                   (Note_Prio (Msg.MIDI_Evt.Chan),
+                                    Key, Result);
+
+                                 case Result.Kind is
+                                 when WNM.Note_Priority.No_Change =>
+                                    null;
+
+                                 when WNM.Note_Priority.Silence =>
+                                    Voice.Note_Off;
+
+                                 when WNM.Note_Priority.Retrigger =>
+                                    --  Another key is still held: resume it
+                                    --  instead of releasing the voice, so
+                                    --  trills don't die on the newest
+                                    --  key's release.
+                                    Voice.Set_Pitch
+                                      (Tresses.MIDI_Pitch
+                                         (Standard.MIDI.MIDI_UInt8
+                                            (Result.Key)));
+                                    Voice.Note_On
+                                      (Tresses.MIDI_Param (Result.Velocity));
+                                 end case;
+                              end;
                            end if;
                         end;
 

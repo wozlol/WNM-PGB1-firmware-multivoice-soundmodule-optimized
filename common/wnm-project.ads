@@ -281,6 +281,21 @@ package WNM.Project is
    is (case N is
           when Chord => "Notes of chord");
 
+   type Chord_Voicing_Kind is (Generated, Direct_Poly);
+   --  Generated:   sequenced Chord/Note_In_Chord steps play the harmonized
+   --               chord tones computed from the chord progression
+   --               (Chord_Sequencer), as in stock firmware.
+   --  Direct_Poly: sequenced Chord/Note_In_Chord steps play their own
+   --               literal step note instead of the harmonized chord.
+   --               Live-played notes (external MIDI or on-device keys) are
+   --               unaffected by this setting: they already reach the
+   --               Chord voices directly in both modes.
+
+   function Img (M : Chord_Voicing_Kind) return String
+   is (case M is
+          when Generated   => "Generated",
+          when Direct_Poly => "Direct Poly");
+
    type Octave_Offset is range -8 .. 8;
    function Add_Sat (A, B : Octave_Offset) return Octave_Offset;
 
@@ -353,6 +368,8 @@ package WNM.Project is
 
    function LFO_Amp_Mode (T : Tracks) return LFO_Amp_Kind;
 
+   function Chord_Voicing (T : Tracks) return Chord_Voicing_Kind;
+
    function CC_Value_To_Use (P : Patterns; T : Tracks; S : Sequencer_Steps;
                              Id : CC_Id)
                              return MIDI.MIDI_Data;
@@ -405,7 +422,8 @@ package WNM.Project is
 
                            LFO_Amp_Mode,
                            LFO_Loop,
-                           LFO_Sync);
+                           LFO_Sync,
+                           Chord_Voicing);
 
    for Track_Settings'Size use 8;
    for Track_Settings use (Engine              => 1,
@@ -438,7 +456,8 @@ package WNM.Project is
                            Track_Mode          => 28,
                            LFO_Amp_Mode        => 29,
                            LFO_Loop            => 30,
-                           LFO_Sync            => 31);
+                           LFO_Sync            => 31,
+                           Chord_Voicing       => 32);
 
    subtype User_Track_Settings
      is Track_Settings range Engine .. Track_Mode;
@@ -463,6 +482,9 @@ package WNM.Project is
 
    procedure LFO_Amp_Mode_Next (T : Tracks);
    procedure LFO_Amp_Mode_Prev (T : Tracks);
+
+   procedure Chord_Voicing_Next (T : Tracks);
+   procedure Chord_Voicing_Prev (T : Tracks);
 
    -------------
    -- Pattern --
@@ -829,6 +851,10 @@ private
                                              Wrap => True);
    use LFO_Target_Next;
 
+   package Chord_Voicing_Kind_Next is new Enum_Next (T    => Chord_Voicing_Kind,
+                                                      Wrap => True);
+   use Chord_Voicing_Kind_Next;
+
    package Alt_Slider_Control_Next is new Enum_Next (T  => Alt_Slider_Control,
                                                      Wrap => True);
    use Alt_Slider_Control_Next;
@@ -947,6 +973,7 @@ private
       Arp_Notes : Arp_Notes_Kind := Arp_Notes_Kind'First;
       Notes_Per_Chord : Chord_Settings.Chord_Index_Range :=
         Chord_Settings.Chord_Index_Range'Last;
+      Chord_Voicing : Chord_Voicing_Kind := Direct_Poly;
    end record;
 
    Kick_Track     : constant Tracks := 1;
@@ -987,7 +1014,8 @@ private
       Engine => 0,
       Arp_Mode => Arp_Mode_Kind'First,
       Arp_Notes => Arp_Notes_Kind'First,
-      Notes_Per_Chord => Chord_Settings.Chord_Index_Range'Last
+      Notes_Per_Chord => Chord_Settings.Chord_Index_Range'Last,
+      Chord_Voicing => Direct_Poly
      );
 
    procedure Set_Track_Defaults (Tracks : out Track_Arr);

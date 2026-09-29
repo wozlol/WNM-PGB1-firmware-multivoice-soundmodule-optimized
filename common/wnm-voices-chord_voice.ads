@@ -84,27 +84,85 @@ package WNM.Voices.Chord_Voice is
 private
 
    type Voice is record
-      On : Boolean;
-      Note : MIDI.MIDI_Key;
+      On       : Boolean;
+      --  Whether the key for this voice is currently physically held.
+      --  Decoupled from amplitude: this voice's own Env keeps rendering
+      --  (and decaying through its Release stage) even after On goes
+      --  False, and this voice only becomes eligible for a new note once
+      --  On is False, regardless of whether Env has finished decaying.
+      Note     : MIDI.MIDI_Key;
+      Velocity : Tresses.Param_Range;
+
       Phase              : U32;
-      Start_Phase_Incr   : U32;
       Current_Phase_Incr : U32;
       Target_Phase_Incr  : U32;
+      --  Glide is a simple one-pole approach of Current toward Target,
+      --  stepped every sample in Render (see Glide_Step in the body): no
+      --  separate envelope or "start" point needed, keeping this cheap in
+      --  both CPU and RAM with 4 independent voices.
+
+      Age : U32;
+      --  Monotonic timestamp used to find the oldest active voice when
+      --  stealing is needed.
+
+      Env : Tresses.Envelopes.AR.Instance;
+      --  Each voice has its own independent Attack/Release envelope, so
+      --  releasing one note out of a held chord fades only that note,
+      --  smoothly and click-free (an envelope is a continuous amplitude
+      --  multiplier, so there is no discontinuity to click regardless of
+      --  where in the waveform's cycle release happens), following the
+      --  same Attack/Release settings as every other voice.
+
+      Pending          : Boolean := False;
+      Pending_Key      : MIDI.MIDI_Key := 0;
+      Pending_Velocity : Tresses.Param_Range := 0;
+      Pending_Wait     : U32 := 0;
+      --  When this voice is stolen for a new note, we can't just wait for
+      --  its current note to release (that would defeat the point of
+      --  stealing), but switching pitch and re-triggering the envelope
+      --  immediately can pop: the outgoing note could be at any waveform
+      --  value and any envelope level. Instead the outgoing note keeps
+      --  playing completely normally until its own waveform comes near
+      --  zero (Pending_Wait bounds how long we wait, in case an unusual
+      --  waveform rarely comes near zero), and only then does the actual
+      --  switch to Pending_Key/Pending_Velocity happen.
    end record;
+
+   Near_Zero        : constant S16 := 800;
+   Max_Pending_Wait : constant := 3_000;
+   --  ~94ms at 32kHz: a safety net so an unusual waveform that rarely
+   --  comes near zero can't delay a steal indefinitely.
 
    Chord_Voices : constant := 4;
    type Voice_Id is range 1 .. Chord_Voices;
    type Voice_Array is array (Voice_Id) of Voice;
 
+   Shadow_Depth : constant := 4;
+   --  A key pressed beyond the 4 physical voices steals the oldest one
+   --  immediately (for instant feedback), but the note it stole from is
+   --  remembered here rather than simply forgotten: if its key is still
+   --  held down, it gets revived (with its own fresh Attack, like any
+   --  other new note) into the next voice that frees up, instead of
+   --  staying silent forever. This is how a classic 4-voice poly synth's
+   --  note memory behaves.
+
+   type Shadow_Entry is record
+      Key      : MIDI.MIDI_Key      := 0;
+      Velocity : Tresses.Param_Range := 0;
+   end record;
+   type Shadow_Array is array (1 .. Shadow_Depth) of Shadow_Entry;
+
    type Instance
    is new Four_Params_Voice
    with record
-      Next : Voice_Id := Voice_Id'First;
+      Next_Age : U32 := 0;
+
       Voices : Voice_Array;
 
-      Engine : Chord_Engine := Chord_Engine'First;
+      Shadow       : Shadow_Array := (others => <>);
+      Shadow_Count : Natural range 0 .. Shadow_Depth := 0;
 
-      Env, Glide_Env : Tresses.Envelopes.AR.Instance;
+      Engine : Chord_Engine := Chord_Engine'First;
 
       Do_Init : Boolean := True;
    end record;
