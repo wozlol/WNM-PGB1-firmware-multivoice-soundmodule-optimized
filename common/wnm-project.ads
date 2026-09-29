@@ -370,6 +370,8 @@ package WNM.Project is
 
    function Chord_Voicing (T : Tracks) return Chord_Voicing_Kind;
 
+   function Retrig_Enabled (T : Tracks) return Boolean;
+
    function CC_Value_To_Use (P : Patterns; T : Tracks; S : Sequencer_Steps;
                              Id : CC_Id)
                              return MIDI.MIDI_Data;
@@ -423,7 +425,8 @@ package WNM.Project is
                            LFO_Amp_Mode,
                            LFO_Loop,
                            LFO_Sync,
-                           Chord_Voicing);
+                           Chord_Voicing,
+                           Retrig_Enabled);
 
    for Track_Settings'Size use 8;
    for Track_Settings use (Engine              => 1,
@@ -457,7 +460,8 @@ package WNM.Project is
                            LFO_Amp_Mode        => 29,
                            LFO_Loop            => 30,
                            LFO_Sync            => 31,
-                           Chord_Voicing       => 32);
+                           Chord_Voicing       => 32,
+                           Retrig_Enabled      => 33);
 
    subtype User_Track_Settings
      is Track_Settings range Engine .. Track_Mode;
@@ -485,6 +489,8 @@ package WNM.Project is
 
    procedure Chord_Voicing_Next (T : Tracks);
    procedure Chord_Voicing_Prev (T : Tracks);
+
+   procedure Retrig_Toggle (T : Tracks);
 
    -------------
    -- Pattern --
@@ -974,6 +980,10 @@ private
       Notes_Per_Chord : Chord_Settings.Chord_Index_Range :=
         Chord_Settings.Chord_Index_Range'Last;
       Chord_Voicing : Chord_Voicing_Kind := Direct_Poly;
+      Retrig_Enabled : Boolean := True;
+      --  Last-note-priority mono retrig (see WNM.Note_Priority). Applies
+      --  to every synth track except Chord, which has its own
+      --  independent polyphony and ignores this setting.
    end record;
 
    Kick_Track     : constant Tracks := 1;
@@ -1015,7 +1025,8 @@ private
       Arp_Mode => Arp_Mode_Kind'First,
       Arp_Notes => Arp_Notes_Kind'First,
       Notes_Per_Chord => Chord_Settings.Chord_Index_Range'Last,
-      Chord_Voicing => Direct_Poly
+      Chord_Voicing => Direct_Poly,
+      Retrig_Enabled => True
      );
 
    procedure Set_Track_Defaults (Tracks : out Track_Arr);

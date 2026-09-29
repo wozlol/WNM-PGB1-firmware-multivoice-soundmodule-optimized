@@ -226,10 +226,15 @@ package body WNM.Synth is
                  others          => 0));
    Out_Voice_Parameters : Voice_Parameters_Array := (others => (others => 0));
 
-   --  Last-note-priority mono retrig for every synth channel except Chord
-   --  (which already has its own independent per-voice Key_On/Key_Off).
-   --  Always on, no user setting: see WNM.Note_Priority.
+   --  Last-note-priority mono retrig, available on every synth channel
+   --  except Chord (which already has its own independent per-voice
+   --  Key_On/Key_Off). Per-track setting, defaults to on: see
+   --  WNM.Note_Priority. When off, a channel falls back to the original
+   --  stock behavior of only releasing a voice when the released key
+   --  matches the last key played.
    Note_Prio : array (Tresses_Channels) of WNM.Note_Priority.Instance;
+   Retrig_Enabled : array (Tresses_Channels) of Boolean := (others => True);
+   Last_Key : array (Tresses_Channels) of MIDI.MIDI_Key := (others => 0);
 
    FX_Send : array (MIDI.MIDI_Channel) of FX_Kind := (others => Bypass);
 
@@ -485,9 +490,13 @@ package body WNM.Synth is
                                           (Msg.MIDI_Evt.Velocity));
 
                            if Msg.MIDI_Evt.Chan /= Chord_Channel then
-                              WNM.Note_Priority.Note_On
-                                (Note_Prio (Msg.MIDI_Evt.Chan),
-                                 Key, Msg.MIDI_Evt.Velocity);
+                              if Retrig_Enabled (Msg.MIDI_Evt.Chan) then
+                                 WNM.Note_Priority.Note_On
+                                   (Note_Prio (Msg.MIDI_Evt.Chan),
+                                    Key, Msg.MIDI_Evt.Velocity);
+                              else
+                                 Last_Key (Msg.MIDI_Evt.Chan) := Key;
+                              end if;
                            end if;
 
                            if LFO_Syncs (Msg.MIDI_Evt.Chan) then
@@ -502,6 +511,14 @@ package body WNM.Synth is
                         begin
                            if Msg.MIDI_Evt.Chan = Chord_Channel then
                               Chord.Key_Off (Msg.MIDI_Evt.Key);
+
+                           elsif not Retrig_Enabled (Msg.MIDI_Evt.Chan) then
+                              --  Stock behavior: only release if this key
+                              --  matches the last one played.
+                              if Last_Key (Msg.MIDI_Evt.Chan) = Key then
+                                 Voice.Note_Off;
+                                 Last_Key (Msg.MIDI_Evt.Chan) := 0;
+                              end if;
 
                            else
                               declare
@@ -649,6 +666,13 @@ package body WNM.Synth is
                            when Voice_LFO_Sync_CC =>
                               LFO_Syncs (Msg.MIDI_Evt.Chan) :=
                                 Msg.MIDI_Evt.Controller_Value /= 0;
+
+                           when Voice_Retrig_CC =>
+                              if Msg.MIDI_Evt.Chan in Retrig_Enabled'Range
+                              then
+                                 Retrig_Enabled (Msg.MIDI_Evt.Chan) :=
+                                   Msg.MIDI_Evt.Controller_Value /= 0;
+                              end if;
 
                            when others =>
                               null;

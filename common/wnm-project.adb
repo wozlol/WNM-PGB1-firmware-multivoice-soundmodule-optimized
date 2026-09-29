@@ -919,6 +919,13 @@ package body WNM.Project is
    function Chord_Voicing (T : Tracks) return Chord_Voicing_Kind
    is (G_Project.Tracks (T).Chord_Voicing);
 
+   --------------------
+   -- Retrig_Enabled --
+   --------------------
+
+   function Retrig_Enabled (T : Tracks) return Boolean
+   is (G_Project.Tracks (T).Retrig_Enabled);
+
    ---------------------
    -- CC_Value_To_Use --
    ---------------------
@@ -1127,6 +1134,7 @@ package body WNM.Project is
           when LFO_Loop        => Synth.Voice_LFO_Loop_CC,
           when LFO_Sync        => Synth.Voice_LFO_Sync_CC,
           when LFO_Target      => Synth.Voice_LFO_Target_CC,
+          when Retrig_Enabled  => Synth.Voice_Retrig_CC,
           when CC_Default_A    => Synth.Voice_Param_1_CC,
           when CC_Default_B    => Synth.Voice_Param_2_CC,
           when CC_Default_C    => Synth.Voice_Param_3_CC,
@@ -1174,6 +1182,8 @@ package body WNM.Project is
                     when LFO_Target      => Track.LFO_Target'Enum_Rep,
                     when LFO_Loop        => Track.LFO_Loop'Enum_Rep,
                     when LFO_Sync        => Track.LFO_Sync'Enum_Rep,
+                    when Retrig_Enabled  =>
+                      (if Track.Retrig_Enabled then 1 else 0),
                     when CC_Default_A    => Track.CC (A).Value,
                     when CC_Default_B    => Track.CC (B).Value,
                     when CC_Default_C    => Track.CC (C).Value,
@@ -1447,6 +1457,17 @@ package body WNM.Project is
       Next (G_Project.Tracks (T).LFO_Sync);
       Synchronize_Synth_Setting (T, LFO_Sync);
    end LFO_Toggle_Sync;
+
+   --------------------
+   -- Retrig_Toggle --
+   --------------------
+
+   procedure Retrig_Toggle (T : Tracks) is
+   begin
+      G_Project.Tracks (T).Retrig_Enabled :=
+        not G_Project.Tracks (T).Retrig_Enabled;
+      Synchronize_Synth_Setting (T, Retrig_Enabled);
+   end Retrig_Toggle;
 
    ---------------------
    -- LFO_Toggle_Loop --

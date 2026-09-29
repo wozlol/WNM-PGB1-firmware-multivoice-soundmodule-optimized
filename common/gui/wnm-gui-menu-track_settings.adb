@@ -293,7 +293,16 @@ package body WNM.GUI.Menu.Track_Settings is
             end;
 
          when Arp_Mode =>
-            Draw_Title ("Arpeggiator mode:", "");
+            if Project.Mode (T) = Project.Chord_Mode then
+               --  Retrig doesn't apply to Chord, which has its own
+               --  independent polyphony, so don't show it there.
+               Draw_Title ("Arpeggiator mode:", "");
+            else
+               Draw_Title ("Arp mode, Retrig " &
+                             (if Project.Retrig_Enabled (T)
+                              then "On" else "Off"),
+                           "");
+            end if;
             Draw_Value (Project.Img (Project.Arp_Mode (T)));
 
          when Arp_Notes =>
@@ -537,6 +546,11 @@ package body WNM.GUI.Menu.Track_Settings is
 
                when Notes_Per_Chord =>
                   Project.Chord_Voicing_Next (T);
+
+               when Arp_Mode =>
+                  if Project.Mode (T) /= Project.Chord_Mode then
+                     Project.Retrig_Toggle (T);
+                  end if;
 
                when others =>
                   null;
