@@ -58,6 +58,11 @@ package WNM.Voices.Chord_Voice is
    --  actually usable. Voices beyond this count are never assigned a
    --  note and stay silent. Defaults to 4.
 
+   procedure Set_Bend (This : in out Instance; Offset : Tresses.S16);
+   --  Pitch bend for every sounding voice, in Tresses pitch units. Only
+   --  does work when the value actually changes, so holding the wheel
+   --  still costs nothing.
+
    procedure Render (This   : in out Instance;
                      Buffer :    out Tresses.Mono_Buffer);
 
@@ -199,6 +204,8 @@ private
       Shadow_Count : Natural range 0 .. Shadow_Depth := 0;
 
       Active_Voices : Voice_Id := Voice_Id'Last;
+
+      Bend : Tresses.S16 := 0;
 
       Engine : Chord_Engine := Chord_Engine'First;
 

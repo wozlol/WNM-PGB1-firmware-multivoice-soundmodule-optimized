@@ -40,6 +40,10 @@ package WNM.Persistent is
       LED_Brightness      : WNM.LEDs.Brightness;
       MIDI_Clock_Input    : Boolean;
       MIDI_Clock_Output   : Boolean;
+      Tab_Wrap            : Boolean;
+      Glide_Res           : Resolution_Kind;
+      Bend_Res            : Resolution_Kind;
+      Bend_Range          : Bend_Range_Kind;
    end record;
 
    Default : constant Persistent_Data :=
@@ -55,7 +59,13 @@ package WNM.Persistent is
       TP3_Threshold       => 730,
       LED_Brightness      => WNM.LEDs.Brightness'Last - 1,
       MIDI_Clock_Input    => True,
-      MIDI_Clock_Output   => True);
+      MIDI_Clock_Output   => True,
+      Tab_Wrap            => True,
+      Glide_Res           => Low,
+      --  Low is what the glide engines originally used and were tuned
+      --  around, so it stays the default. High removes the stepping.
+      Bend_Res            => High,
+      Bend_Range          => Two_Semitones);
 
    Data : Persistent_Data := Default;
 

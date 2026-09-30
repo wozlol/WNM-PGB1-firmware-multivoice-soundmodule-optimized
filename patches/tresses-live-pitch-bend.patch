@@ -1,0 +1,110 @@
+diff --git a/src/tresses-drums-wave_kick.adb b/src/tresses-drums-wave_kick.adb
+index 961c554..2d3e4f1 100644
+--- a/src/tresses-drums-wave_kick.adb
++++ b/src/tresses-drums-wave_kick.adb
+@@ -79,14 +79,31 @@ package body Tresses.Drums.Wave_Kick is
+       Drive_Amount := Shift_Right (Drive_Amount**2, 15);
+       Drive_Amount := Drive_Amount * 2;
+ 
+-      Phase_Incr_Delta := (Phase_Increment - Target_Phase_Increment) /
+-        (Resources.SAMPLE_RATE / (1 +
+-         (U32 (Param_Range'Last - Pitch_Decay)) / 259));
++      --  Retune the destination pitch every render, not only at the
++      --  strike, so a bend applied while the note is sounding is heard.
++      --  Phase_Increment itself is left alone because it is mid-sweep, so
++      --  the pitch drop these engines are built on still behaves.
++      Target_Phase_Increment := DSP.Compute_Phase_Increment (S16 (Pitch));
++
++      if Phase_Increment > Target_Phase_Increment then
++         Phase_Incr_Delta := (Phase_Increment - Target_Phase_Increment) /
++           (Resources.SAMPLE_RATE / (1 +
++            (U32 (Param_Range'Last - Pitch_Decay)) / 259));
++      else
++         Phase_Incr_Delta := 0;
++      end if;
+ 
+       for Index in Buffer'Range loop
+ 
++         --  The drop only ever descends from above the target, so keep
++         --  that sweep as it was. If a bend has moved the target above the
++         --  current increment, follow it straight away: these are U32, so
++         --  the delta computed above would have underflowed, which is why
++         --  the pitch used to stick and never come back up.
+          if Phase_Increment > Target_Phase_Increment then
+             Phase_Increment := Phase_Increment - Phase_Incr_Delta;
++         elsif Phase_Increment < Target_Phase_Increment then
++            Phase_Increment := Target_Phase_Increment;
+          end if;
+          Phase := Phase + Phase_Increment;
+ 
+diff --git a/src/tresses-voices-bass_808.adb b/src/tresses-voices-bass_808.adb
+index 5b61e34..139bd5c 100644
+--- a/src/tresses-voices-bass_808.adb
++++ b/src/tresses-voices-bass_808.adb
+@@ -64,10 +64,18 @@ package body Tresses.Voices.Bass_808 is
+          when None => null;
+       end case;
+ 
++      --  Retune the destination pitch every render, not only at the
++      --  strike, so a bend applied while the note is sounding is heard.
++      --  Phase_Increment itself is left alone because it is mid-sweep, so
++      --  the pitch drop these engines are built on still behaves.
++      Target_Phase_Increment := DSP.Compute_Phase_Increment (S16 (Pitch));
++
+       Set_Attack (Env, Attack);
+       Set_Release (Env, Release);
+ 
+-      if Pitch_Decay = 0 then
++      if Phase_Increment <= Target_Phase_Increment then
++         Phase_Incr_Delta := 0;
++      elsif Pitch_Decay = 0 then
+          Phase_Incr_Delta := Phase_Increment - Target_Phase_Increment;
+       else
+          Phase_Incr_Delta := (Phase_Increment - Target_Phase_Increment) /
+@@ -84,6 +92,12 @@ package body Tresses.Voices.Bass_808 is
+ 
+          if Phase_Increment > Target_Phase_Increment then
+             Phase_Increment := Phase_Increment - Phase_Incr_Delta;
++         elsif Phase_Increment < Target_Phase_Increment then
++            --  See the note in wave_kick: a bend that raises the target
++            --  above the current increment is followed immediately, since
++            --  the descending sweep cannot climb and the U32 subtraction
++            --  would underflow.
++            Phase_Increment := Target_Phase_Increment;
+          end if;
+ 
+          Phase := Phase + Phase_Increment;
+diff --git a/src/tresses-voices-pluck_bass.adb b/src/tresses-voices-pluck_bass.adb
+index 19d0648..3c77ee3 100644
+--- a/src/tresses-voices-pluck_bass.adb
++++ b/src/tresses-voices-pluck_bass.adb
+@@ -70,6 +70,12 @@ package body Tresses.Voices.Pluck_Bass is
+          when None => null;
+       end case;
+ 
++      --  Recomputed every render, not just on the strike, so a pitch
++      --  change part way through a note (a pitch bend) is actually heard.
++      --  Latching it at the strike meant Set_Pitch had no effect until the
++      --  next note.
++      Phase_Increment := DSP.Compute_Phase_Increment (S16 (Pitch));
++
+       for Index in Buffer'Range loop
+ 
+          Phase := Phase + Phase_Increment;
+diff --git a/src/tresses-voices-wave_pluck.adb b/src/tresses-voices-wave_pluck.adb
+index bca775b..9b5cd5c 100644
+--- a/src/tresses-voices-wave_pluck.adb
++++ b/src/tresses-voices-wave_pluck.adb
+@@ -61,6 +61,12 @@ package body Tresses.Voices.Wave_Pluck is
+ 
+       Set_Resonance (Filter, Reso);
+ 
++      --  Recomputed every render, not just on the strike, so a pitch
++      --  change part way through a note (a pitch bend) is actually heard.
++      --  Latching it at the strike meant Set_Pitch had no effect until the
++      --  next note.
++      Phase_Increment := DSP.Compute_Phase_Increment (S16 (Pitch));
++
+       for Index in Buffer'Range loop
+          Phase := Phase + Phase_Increment;
+ 

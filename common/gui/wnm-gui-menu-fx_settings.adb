@@ -26,6 +26,8 @@ with WNM.Screen;
 with WNM.GUI.Bitmap_Fonts;
 with WNM.Project; use WNM.Project;
 
+with WNM.Persistent;
+
 package body WNM.GUI.Menu.FX_Settings is
 
    Singleton : aliased Instance;
@@ -125,11 +127,49 @@ package body WNM.GUI.Menu.FX_Settings is
    overriding
    procedure Draw (This   : in out Instance) is
       Sub : constant Sub_Settings := This.Item;
-      Top : constant Top_Settings := To_Top (Sub);
+      Top : constant Top_Settings :=
+        (if This.On_Prefs then Preferences else To_Top (Sub));
    begin
       Draw_Menu_Box ("Live FX",
                      Count => Top_Count,
                      Index => Top_Settings'Pos (Top));
+
+      if This.On_Prefs then
+         declare
+            Spacing : constant := 32;
+
+            procedure Col (Pos   : Natural;
+                           Label : String;
+                           Val   : String;
+                           Sel   : Boolean)
+            is
+               X : constant Natural := Box_Left + 6 + Pos * Spacing;
+            begin
+               Draw_Str (X, Value_Text_Y - 8, Val);
+               Draw_Value_Pos (Label, X, Sel);
+            end Col;
+         begin
+            Draw_Title
+              ((case This.Pref_Sel is
+                  when Pref_Tab_Wrap   => "Menu Tab Wrap-Around",
+                  when Pref_Glide_Res  => "Glide Resolution",
+                  when Pref_Bend_Res   => "Pitch Bend Res",
+                  when Pref_Bend_Range => "Pitch Bend Range"),
+               "");
+
+            Col (0, "TAB",
+                 (if WNM.Persistent.Data.Tab_Wrap then "On" else "Off"),
+                 This.Pref_Sel = Pref_Tab_Wrap);
+            Col (1, "GLD", Img (WNM.Persistent.Data.Glide_Res),
+                 This.Pref_Sel = Pref_Glide_Res);
+            Col (2, "BND", Img (WNM.Persistent.Data.Bend_Res),
+                 This.Pref_Sel = Pref_Bend_Res);
+            Col (3, "RNG", Img (WNM.Persistent.Data.Bend_Range),
+                 This.Pref_Sel = Pref_Bend_Range);
+         end;
+
+         return;
+      end if;
 
       case Top is
          when Auto_Fill_Tracks_Select =>
@@ -216,6 +256,9 @@ package body WNM.GUI.Menu.FX_Settings is
                            Label => "REL",
                            Selected => Sub = Stutter_Release);
 
+
+         when Preferences =>
+            null;  --  handled above, before this case
       end case;
 
       if Sub in Auto_Fill_Tracks_Select |
@@ -243,6 +286,68 @@ package body WNM.GUI.Menu.FX_Settings is
    is
       Sub : constant Sub_Settings := This.Item;
    begin
+      if This.On_Prefs then
+         declare
+            procedure Toggle is
+            begin
+               case This.Pref_Sel is
+                  when Pref_Tab_Wrap =>
+                     WNM.Persistent.Data.Tab_Wrap :=
+                       not WNM.Persistent.Data.Tab_Wrap;
+                  when Pref_Glide_Res =>
+                     WNM.Persistent.Data.Glide_Res :=
+                       (if WNM.Persistent.Data.Glide_Res = High
+                        then Low else High);
+                  when Pref_Bend_Res =>
+                     WNM.Persistent.Data.Bend_Res :=
+                       (if WNM.Persistent.Data.Bend_Res = High
+                        then Low else High);
+                  when Pref_Bend_Range =>
+                     WNM.Persistent.Data.Bend_Range :=
+                       (if WNM.Persistent.Data.Bend_Range = One_Octave
+                        then Two_Semitones else One_Octave);
+               end case;
+               --  Deliberately not saved here. Persistent.Save writes to
+               --  flash, and the rest of the firmware only ever does that
+               --  at shutdown, from Power_Control.Save_Before_Shutdown.
+               --  Doing it from a keypress, while the code is executing
+               --  from that same flash and audio is streaming, hangs the
+               --  device. These settings persist on power down like every
+               --  other global setting.
+            end Toggle;
+         begin
+            case Event.Kind is
+               when Right_Press =>
+                  if This.Pref_Sel /= Pref_Item'Last then
+                     This.Pref_Sel := Pref_Item'Succ (This.Pref_Sel);
+                  elsif WNM.Persistent.Data.Tab_Wrap then
+                     --  Off the end of the last tab, round to the first.
+                     This.On_Prefs := False;
+                     This.Item := Sub_Settings'First;
+                  end if;
+
+               when Left_Press =>
+                  if This.Pref_Sel /= Pref_Item'First then
+                     This.Pref_Sel := Pref_Item'Pred (This.Pref_Sel);
+                  else
+                     This.On_Prefs := False;
+                     This.Item := Sub_Settings'Last;
+                  end if;
+
+               when A_Press | Up_Press | Down_Press =>
+                  Toggle;
+
+               when B_Press =>
+                  Menu.Pop (Success);
+
+               when others =>
+                  null;
+            end case;
+         end;
+
+         return;
+      end if;
+
       case Event.Kind is
          when Right_Press =>
             if This.Edit_Pattern then
@@ -252,6 +357,8 @@ package body WNM.GUI.Menu.FX_Settings is
                if This.Track_Select /= Tracks'Last then
                   This.Track_Select := @ + 1;
                end if;
+            elsif This.Item = Sub_Settings'Last then
+               This.On_Prefs := True;
             else
                Next (This.Item);
             end if;
@@ -263,6 +370,11 @@ package body WNM.GUI.Menu.FX_Settings is
                end if;
                if This.Track_Select /= Tracks'First then
                   This.Track_Select := @ - 1;
+               end if;
+            elsif This.Item = Sub_Settings'First then
+               if WNM.Persistent.Data.Tab_Wrap then
+                  This.On_Prefs := True;
+                  This.Pref_Sel := Pref_Item'Last;
                end if;
             else
                Prev (This.Item);

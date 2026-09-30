@@ -1,0 +1,140 @@
+diff --git a/src/tresses-voices-chip_echo.adb b/src/tresses-voices-chip_echo.adb
+index 0cb3dc3..a746cd7 100644
+--- a/src/tresses-voices-chip_echo.adb
++++ b/src/tresses-voices-chip_echo.adb
+@@ -130,8 +130,11 @@ package body Tresses.Voices.Chip_Echo is
+          Render (Env1);
+          Render (Env2);
+ 
+-         SampleA := (SampleA * S32 (LoFi (Env1))) / 2**15;
+-         SampleB := (SampleB * S32 (LoFi (Env2))) / 2**15;
++         --  Envelope amplitude at full resolution. LoFi masks off the low
++         --  11 bits, leaving 32 amplitude levels, so a fade descends in
++         --  jumps of 6.25% of full scale and each jump is an audible step.
++         SampleA := (SampleA * Low_Pass (Env1)) / 2**15;
++         SampleB := (SampleB * Low_Pass (Env2)) / 2**15;
+          BufferA (Index) := S16 ((SampleA + SampleB) / 2);
+       end loop;
+ 
+diff --git a/src/tresses-voices-chip_phaser.adb b/src/tresses-voices-chip_phaser.adb
+index 8b54d32..ce02846 100644
+--- a/src/tresses-voices-chip_phaser.adb
++++ b/src/tresses-voices-chip_phaser.adb
+@@ -54,6 +54,12 @@ package body Tresses.Voices.Chip_Phaser is
+          when None => null;
+       end case;
+ 
++      --  Recomputed every render, not just on the strike, so a pitch
++      --  change part way through a note (a pitch bend) is actually heard.
++      --  Latching it at the strike meant Set_Pitch had no effect until the
++      --  next note.
++      Phase_Increment := DSP.Compute_Phase_Increment (S16 (Pitch));
++
+       Analog_Oscillator.Set_Param (Osc1, 0, Shape);
+       Analog_Oscillator.Render (Osc1, BufferA, Phase_Increment);
+       Analog_Oscillator.Set_Param (Osc2, 0, Shape);
+@@ -70,7 +76,13 @@ package body Tresses.Voices.Chip_Phaser is
+          --  Envolopes
+          Render (Env);
+          SampleA := (SampleA + SampleB) / 2;
+-         SampleA := (SampleA * S32 (LoFi (Env))) / 2**15;
++         --  Was LoFi (Env), which masks off the low 11 bits of the
++         --  envelope and so leaves only 32 amplitude levels. A fade then
++         --  descends in 32 jumps of 6.25% of full scale, and every jump is
++         --  an abrupt step, so a long release turns into a staircase of
++         --  clicks and a short one into a single pop. The sibling engine
++         --  Wave_Phaser uses Low_Pass here and is clean, so match it.
++         SampleA := (SampleA * Low_Pass (Env)) / 2**15;
+          BufferA (Index) := S16 (SampleA);
+       end loop;
+ 
+diff --git a/src/tresses-voices-chip_portamento.adb b/src/tresses-voices-chip_portamento.adb
+index ac23cbc..3e4ef42 100644
+--- a/src/tresses-voices-chip_portamento.adb
++++ b/src/tresses-voices-chip_portamento.adb
+@@ -82,11 +82,17 @@ package body Tresses.Voices.Chip_Portamento is
+ 
+       if Target_Phase_Incr > Start_Phase_Incr then
+          Diff := Target_Phase_Incr - Start_Phase_Incr;
+-         Amount := Param_Range'Last - Param_Range (LoFi (Shape_Env));
++         Amount := Param_Range'Last - Param_Range
++           (if Glide_Full_Resolution
++            then Value (Shape_Env)
++            else LoFi (Shape_Env));
+          Current_Phase_Incr := Start_Phase_Incr + DSP.Modulate (Diff, Amount);
+       else
+          Diff := Start_Phase_Incr - Target_Phase_Incr;
+-         Amount := Param_Range'Last - Param_Range (LoFi (Shape_Env));
++         Amount := Param_Range'Last - Param_Range
++           (if Glide_Full_Resolution
++            then Value (Shape_Env)
++            else LoFi (Shape_Env));
+          Current_Phase_Incr :=
+            Start_Phase_Incr - DSP.Modulate (Diff, Amount);
+       end if;
+@@ -112,7 +118,10 @@ package body Tresses.Voices.Chip_Portamento is
+          Sample := Filters.SVF.Process (Filter, Sample);
+ 
+          --  Sample := (Sample * Low_Pass (Env)) / 2**15;
+-         Sample := (Sample * S32 (LoFi (Env))) / 2**15;
++         --  Envelope amplitude at full resolution. LoFi masks off the low
++         --  11 bits, leaving 32 amplitude levels, so a fade descends in
++         --  jumps of 6.25% of full scale and each jump is an audible step.
++         Sample := (Sample * Low_Pass (Env)) / 2**15;
+ 
+          Buffer (Index) := S16 (Sample);
+       end loop;
+diff --git a/src/tresses-voices-wave_portamento.adb b/src/tresses-voices-wave_portamento.adb
+index e399c3d..1ea679e 100644
+--- a/src/tresses-voices-wave_portamento.adb
++++ b/src/tresses-voices-wave_portamento.adb
+@@ -80,11 +80,17 @@ package body Tresses.Voices.Wave_Portamento is
+ 
+       if Target_Phase_Incr > Start_Phase_Incr then
+          Diff := Target_Phase_Incr - Start_Phase_Incr;
+-         Amount := Param_Range'Last - Param_Range (LoFi (Shape_Env));
++         Amount := Param_Range'Last - Param_Range
++           (if Glide_Full_Resolution
++            then Value (Shape_Env)
++            else LoFi (Shape_Env));
+          Current_Phase_Incr := Start_Phase_Incr + DSP.Modulate (Diff, Amount);
+       else
+          Diff := Start_Phase_Incr - Target_Phase_Incr;
+-         Amount := Param_Range'Last - Param_Range (LoFi (Shape_Env));
++         Amount := Param_Range'Last - Param_Range
++           (if Glide_Full_Resolution
++            then Value (Shape_Env)
++            else LoFi (Shape_Env));
+          Current_Phase_Incr :=
+            Start_Phase_Incr - DSP.Modulate (Diff, Amount);
+       end if;
+@@ -108,7 +114,10 @@ package body Tresses.Voices.Wave_Portamento is
+          Sample := Filters.SVF.Process (Filter, Sample);
+ 
+          --  Sample := (Sample * Low_Pass (Env)) / 2**15;
+-         Sample := (Sample * S32 (LoFi (Env))) / 2**15;
++         --  Envelope amplitude at full resolution. LoFi masks off the low
++         --  11 bits, leaving 32 amplitude levels, so a fade descends in
++         --  jumps of 6.25% of full scale and each jump is an audible step.
++         Sample := (Sample * Low_Pass (Env)) / 2**15;
+ 
+          Buffer (Index) := S16 (Sample);
+       end loop;
+diff --git a/src/tresses.ads b/src/tresses.ads
+index 56f0600..12a35da 100644
+--- a/src/tresses.ads
++++ b/src/tresses.ads
+@@ -37,6 +37,13 @@ is
+    type Param_Id is range 1 .. 4;
+    type Param_Array is array (Param_Id) of Param_Range;
+ 
++   Glide_Full_Resolution : Boolean := False;
++   --  Set by the application. The glide engines originally derived their
++   --  portamento amount from LoFi of the shape envelope, which keeps only
++   --  5 bits and so moves the pitch in 32 steps. That coarseness is part
++   --  of their character, so it stays the default and this switches it to
++   --  the full value instead.
++
+    type Pitch_Range is new S16 range 0 .. 127 * 128;
+ 
+    function Add_Sat (A, B : Pitch_Range) return Pitch_Range;

@@ -1,0 +1,24 @@
+authors = [
+"Fabien Chouteau",
+]
+description = "Library to encode and decode MIDI messages"
+licenses = "MIT"
+maintainers = [
+"Fabien Chouteau <fabien.chouteau@gmail.com>",
+]
+maintainers-logins = [
+"Fabien-Chouteau",
+]
+name = "midi"
+tags = [
+"midi",
+"embedded",
+"nostd",
+]
+version = "1.0.0"
+website = "https://github.com/Fabien-Chouteau/MIDI"
+[[depends-on]]
+bbqueue = "^1.0.0"
+gnat = ">=11"
+hal = "^1.0.0"
+

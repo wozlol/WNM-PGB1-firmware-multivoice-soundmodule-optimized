@@ -39,7 +39,11 @@ package body WNM.Persistent is
                              P_TP3_Threshold,
                              P_LED_Dim,
                              P_MIDI_Clock_Input,
-                             P_MIDI_Clock_Output);
+                             P_MIDI_Clock_Output,
+                             P_Tab_Wrap,
+                             P_Glide_Res,
+                             P_Bend_Res,
+                             P_Bend_Range);
 
    for Persistent_Token use (P_Last_Project      => 0,
                              P_Main_Volume       => 1,
@@ -53,7 +57,11 @@ package body WNM.Persistent is
                              P_TP3_Threshold     => 9,
                              P_LED_Dim           => 10,
                              P_MIDI_Clock_Input  => 11,
-                             P_MIDI_Clock_Output => 12);
+                             P_MIDI_Clock_Output => 12,
+                             P_Tab_Wrap          => 13,
+                             P_Glide_Res         => 14,
+                             P_Bend_Res          => 15,
+                             P_Bend_Range        => 16);
 
    ----------
    -- Save --
@@ -97,6 +105,14 @@ package body WNM.Persistent is
                Output.Push (Data.MIDI_Clock_Input);
             when P_MIDI_Clock_Output =>
                Output.Push (Data.MIDI_Clock_Output);
+            when P_Tab_Wrap =>
+               Output.Push (Data.Tab_Wrap);
+            when P_Glide_Res =>
+               Output.Push (Data.Glide_Res'Enum_Rep);
+            when P_Bend_Res =>
+               Output.Push (Data.Bend_Res'Enum_Rep);
+            when P_Bend_Range =>
+               Output.Push (Data.Bend_Range'Enum_Rep);
          end case;
 
          exit when Output.Status /= Ok;
@@ -113,6 +129,8 @@ package body WNM.Persistent is
    procedure Load is
       procedure To_P_Token is new Convert_To_Enum (Persistent_Token);
       procedure Read is new Read_Gen_Enum (FX_Kind);
+      procedure Read is new Read_Gen_Enum (Resolution_Kind);
+      procedure Read is new Read_Gen_Enum (Bend_Range_Kind);
       procedure Read_Prj is new Read_Gen_Int (Project.Library.Prj_Index);
       procedure Read_U32 is new Read_Gen_Mod (HAL.UInt32);
       procedure Read_Volume is new Read_Gen_Int (Audio_Volume);
@@ -167,6 +185,14 @@ package body WNM.Persistent is
                Input.Read (Data.MIDI_Clock_Input);
             when P_MIDI_Clock_Output =>
                Input.Read (Data.MIDI_Clock_Output);
+            when P_Tab_Wrap =>
+               Input.Read (Data.Tab_Wrap);
+            when P_Glide_Res =>
+               Read (Input, Data.Glide_Res);
+            when P_Bend_Res =>
+               Read (Input, Data.Bend_Res);
+            when P_Bend_Range =>
+               Read (Input, Data.Bend_Range);
          end case;
 
          exit when Input.Status /= Ok;

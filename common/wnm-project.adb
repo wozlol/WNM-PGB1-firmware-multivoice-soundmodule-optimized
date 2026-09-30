@@ -2226,6 +2226,13 @@ package body WNM.Project is
             else
                Send_To_Synth;
             end if;
+         when Pitch_Bend =>
+            --  Follows whichever track is being played, exactly like the
+            --  notes do. Without this the wheel went nowhere, because live
+            --  playing comes in on channel 1 and never reaches the synth
+            --  except through here.
+            Send_To_Synth;
+
          when others =>
             null;
       end case;

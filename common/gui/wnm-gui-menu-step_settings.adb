@@ -22,6 +22,8 @@
 with WNM.GUI.Menu.Drawing; use WNM.GUI.Menu.Drawing;
 with WNM.Project;          use WNM.Project;
 
+with WNM.Persistent;
+
 package body WNM.GUI.Menu.Step_Settings is
 
    package Sub_Settings_Next is new Enum_Next (Sub_Settings,
@@ -157,9 +159,21 @@ package body WNM.GUI.Menu.Step_Settings is
    begin
       case Event.Kind is
          when Left_Press =>
-            Prev (This.Current_Setting);
+            if This.Current_Setting = Sub_Settings'First then
+               if WNM.Persistent.Data.Tab_Wrap then
+                  This.Current_Setting := Sub_Settings'Last;
+               end if;
+            else
+               Prev (This.Current_Setting);
+            end if;
          when Right_Press =>
-            Next (This.Current_Setting);
+            if This.Current_Setting = Sub_Settings'Last then
+               if WNM.Persistent.Data.Tab_Wrap then
+                  This.Current_Setting := Sub_Settings'First;
+               end if;
+            else
+               Next (This.Current_Setting);
+            end if;
 
          when Up_Press =>
             Next_Value (This.Current_Setting);

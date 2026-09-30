@@ -85,7 +85,7 @@ package body WNM.Tasks is
                      null;
                end case;
 
-            when Note_On | Note_Off | Continous_Controller =>
+            when Note_On | Note_Off | Continous_Controller | Pitch_Bend =>
                declare
                   Evt : MIDI.Message := Msg;
                begin

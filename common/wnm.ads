@@ -32,6 +32,18 @@ package WNM is
 
    subtype Keyboard_Button is Button range B1 .. B16;
 
+   type Resolution_Kind is (Low, High);
+   --  Control-signal resolution. Low keeps the original coarse stepping,
+   --  which some engines were built around, High uses the full value.
+
+   function Img (R : Resolution_Kind) return String
+   is (case R is when Low => "Low", when High => "High");
+
+   type Bend_Range_Kind is (Two_Semitones, One_Octave);
+
+   function Img (B : Bend_Range_Kind) return String
+   is (case B is when Two_Semitones => "2ST", when One_Octave => "1OC");
+
    type Keyboard_Value is range 1 .. 16;
 
    function To_Value (B : Keyboard_Button) return Keyboard_Value;

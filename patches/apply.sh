@@ -38,5 +38,7 @@ apply () {
 
 apply "$here/noise_nugget_sdk-codec-clock-from-bclk.patch" "$sdk"
 apply "$here/tresses-buzz-zero-detune-cancellation.patch" "$tresses"
+apply "$here/tresses-glide-and-smoothing.patch" "$tresses"
+apply "$here/tresses-live-pitch-bend.patch" "$tresses"
 
 exit $status

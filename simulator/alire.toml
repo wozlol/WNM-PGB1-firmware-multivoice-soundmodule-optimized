@@ -22,6 +22,7 @@ uf2_utils = "*"
 midi = "^1.0.0"
 
 [[pins]]
+midi = { path = "../deps/midi" }
 fsmaker = { url="https://github.com/Fabien-Chouteau/fsmaker" }
 uf2_utils = { url="https://github.com/Fabien-Chouteau/uf2_utils" }
 tresses = {url="https://github.com/wee-noise-makers/tresses", branch="release/4.0"}

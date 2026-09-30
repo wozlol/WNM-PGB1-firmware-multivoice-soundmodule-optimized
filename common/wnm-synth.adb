@@ -36,6 +36,8 @@ with Tresses.Interfaces;
 with WNM.Generic_Queue;
 with WNM.Utils;
 with WNM.Note_Priority;
+with Interfaces;
+with WNM.Persistent;
 
 with WNM.Shared_Buffers;
 
@@ -268,6 +270,7 @@ package body WNM.Synth is
       Buffer :    out WNM_HAL.Mono_Buffer;
       Aux    :    out WNM_HAL.Mono_Buffer);
 
+
    LFOs       : array (Tresses_Channels) of Tresses.LFO.Instance;
    LFO_Syncs  : array (Tresses_Channels) of Boolean := (others => False);
    LFO_Values : array (Tresses_Channels) of Tresses.S16;
@@ -288,7 +291,89 @@ package body WNM.Synth is
    --  WNM.Note_Priority. When off, a channel falls back to the original
    --  stock behavior of only releasing a voice when the released key
    --  matches the last key played.
-   Note_Prio : array (Tresses_Channels) of WNM.Note_Priority.Instance;
+   subtype Note_Channels is
+     MIDI.MIDI_Channel range Kick_Channel .. Sample2_Channel;
+   --  The channels that can actually be sent notes. Reverb, Drive and
+   --  Bitcrusher are effects and never are, so they need none of the
+   --  per-note bookkeeping below.
+
+   Note_Prio : array (Note_Channels) of WNM.Note_Priority.Instance;
+
+   subtype Bend_Channels is
+     MIDI.MIDI_Channel range Kick_Channel .. Sample2_Channel;
+   --  Every channel that can be pitched. The samplers are in: they already
+   --  resample, so a bend is just a different playback rate.
+
+   subtype Bend_Pitch_Voices is
+     MIDI.MIDI_Channel range Kick_Channel .. Chord_Channel;
+   --  Of those, the ones bent by setting a pitch. The samplers keep their
+   --  own key and bend and work out their own playback rate, so they need
+   --  none of the state below.
+
+   Bend_Offset : array (Bend_Channels) of Tresses.S16 := (others => 0);
+
+   Bend_Applied : array (Bend_Pitch_Voices) of Tresses.S16 :=
+     (others => 0);
+
+
+   Base_Pitch : array (Bend_Pitch_Voices) of Tresses.Pitch_Range :=
+     (others => 0);
+   --  Unbent pitch of whatever each channel is playing, so a bend can be
+   --  applied without losing the note it applies to.
+
+   function Bend_Range_Units return Integer
+   is (case WNM.Persistent.Data.Bend_Range is
+          when Two_Semitones => 2 * 128,
+          when One_Octave    => 12 * 128);
+   --  Tresses pitch units, 128 to the semitone.
+
+   -------------------
+   -- Bend_To_Units --
+   -------------------
+
+   function Bend_To_Units (Msg : MIDI.Message) return Tresses.S16 is
+      Raw    : constant Integer := MIDI.Bend_Value (Msg) - MIDI.Bend_Center;
+      Units  : Integer := (Raw * Bend_Range_Units) / MIDI.Bend_Center;
+   begin
+      if WNM.Persistent.Data.Bend_Res = Low then
+         --  Coarse on purpose, 32 steps across the range.
+         Units := (Units / 16) * 16;
+      end if;
+
+      return Tresses.S16 (Units);
+   end Bend_To_Units;
+
+   ----------------
+   -- Bent_Pitch --
+   ----------------
+
+   function Bent_Pitch (Chan : Bend_Pitch_Voices)
+                        return Tresses.Pitch_Range is
+      P : constant Integer :=
+        Integer (Base_Pitch (Chan)) + Integer (Bend_Offset (Chan));
+   begin
+      return Tresses.Pitch_Range
+        (Integer'Max (Integer (Tresses.Pitch_Range'First),
+                      Integer'Min (Integer (Tresses.Pitch_Range'Last), P)));
+   end Bent_Pitch;
+
+   ----------------
+   -- Apply_Bend --
+   ----------------
+
+   procedure Apply_Bend (Chan : Bend_Pitch_Voices) is
+   begin
+      --  Nothing to do with the wheel centred, which is most of the time,
+      --  so this costs nothing until it is actually moved. Goes through the
+      --  class-wide access so it works for the drums as well as Bass and
+      --  Lead, since Set_Pitch is common to every voice.
+      if Integer (Bend_Applied (Chan)) /= Integer (Bend_Offset (Chan))
+      then
+         Bend_Applied (Chan) := Bend_Offset (Chan);
+         Synth_Voices (Chan).Set_Pitch (Bent_Pitch (Chan));
+      end if;
+   end Apply_Bend;
+
    Retrig_Enabled : array (Tresses_Channels) of Boolean := (others => True);
    Last_Key : array (Tresses_Channels) of MIDI.MIDI_Key := (others => 0);
 
@@ -544,9 +629,25 @@ package body WNM.Synth is
                                                  (Msg.MIDI_Evt.Velocity));
 
                               else
-                                 Voice.Set_Pitch (Tresses.MIDI_Pitch
-                                                  (Standard.MIDI.MIDI_UInt8
-                                                     (Key)));
+                                 if Msg.MIDI_Evt.Chan in Bend_Pitch_Voices
+                                 then
+                                    --  Start already bent, so a hit
+                                    --  triggered while the wheel is held
+                                    --  off centre lands on the bent pitch
+                                    --  instead of only following the wheel
+                                    --  once it moves again.
+                                    Base_Pitch (Msg.MIDI_Evt.Chan) :=
+                                      Tresses.MIDI_Pitch
+                                        (Standard.MIDI.MIDI_UInt8 (Key));
+                                    Bend_Applied (Msg.MIDI_Evt.Chan) :=
+                                      Bend_Offset (Msg.MIDI_Evt.Chan);
+                                    Voice.Set_Pitch
+                                      (Bent_Pitch (Msg.MIDI_Evt.Chan));
+                                 else
+                                    Voice.Set_Pitch
+                                      (Tresses.MIDI_Pitch
+                                         (Standard.MIDI.MIDI_UInt8 (Key)));
+                                 end if;
                               end if;
 
                               Voice.Note_On (Tresses.MIDI_Param
@@ -554,7 +655,9 @@ package body WNM.Synth is
                            end if;
 
                            if Msg.MIDI_Evt.Chan /= Chord_Channel then
-                              if Retrig_Enabled (Msg.MIDI_Evt.Chan) then
+                              if Retrig_Enabled (Msg.MIDI_Evt.Chan)
+                                and then Msg.MIDI_Evt.Chan in Note_Channels
+                              then
                                  WNM.Note_Priority.Note_On
                                    (Note_Prio (Msg.MIDI_Evt.Chan),
                                     Key, Msg.MIDI_Evt.Velocity);
@@ -590,7 +693,9 @@ package body WNM.Synth is
                            if Msg.MIDI_Evt.Chan = Chord_Channel then
                               Chord.Key_Off (Msg.MIDI_Evt.Key);
 
-                           elsif not Retrig_Enabled (Msg.MIDI_Evt.Chan) then
+                           elsif not Retrig_Enabled (Msg.MIDI_Evt.Chan)
+                             or else Msg.MIDI_Evt.Chan not in Note_Channels
+                           then
                               --  Stock behavior: only release if this key
                               --  matches the last one played.
                               if Last_Key (Msg.MIDI_Evt.Chan) = Key then
@@ -637,6 +742,26 @@ package body WNM.Synth is
                               end;
                            end if;
                         end;
+
+                     when MIDI.Pitch_Bend =>
+                        if Msg.MIDI_Evt.Chan in Bend_Channels then
+                           Bend_Offset (Msg.MIDI_Evt.Chan) :=
+                             Bend_To_Units (Msg.MIDI_Evt);
+
+                           case Msg.MIDI_Evt.Chan is
+                              when Chord_Channel =>
+                                 Chord.Set_Bend
+                                   (Bend_Offset (Msg.MIDI_Evt.Chan));
+                              when Sample1_Channel =>
+                                 Sampler1.Set_Bend
+                                   (Bend_Offset (Msg.MIDI_Evt.Chan));
+                              when Sample2_Channel =>
+                                 Sampler2.Set_Bend
+                                   (Bend_Offset (Msg.MIDI_Evt.Chan));
+                              when others =>
+                                 null;
+                           end case;
+                        end if;
 
                      when MIDI.Continous_Controller =>
                         case Msg.MIDI_Evt.Controller is
@@ -885,6 +1010,11 @@ package body WNM.Synth is
    begin
       Utils.Start (Overall_Synth_Perf);
 
+      --  Keep the glide engines' resolution in step with the setting.
+      --  One store per buffer, so no need to wire up a change notification.
+      Tresses.Glide_Full_Resolution :=
+        WNM.Persistent.Data.Glide_Res = High;
+
       --  Take input params
       Out_Voice_Parameters := In_Voice_Parameters;
 
@@ -941,11 +1071,13 @@ package body WNM.Synth is
          --  Regular synthesis of all channels
 
          Start (Synth_Perf (Kick_Channel));
+         Apply_Bend (Kick_Channel);
          TK.Render (Buffer);
          Mix (Kick_Channel);
          Stop (Synth_Perf (Kick_Channel));
 
          Start (Synth_Perf (Snare_Channel));
+         Apply_Bend (Snare_Channel);
          TS.Render (Buffer);
          Mix (Snare_Channel);
          Stop (Synth_Perf (Snare_Channel));
@@ -976,6 +1108,7 @@ package body WNM.Synth is
          Stop (Synth_Perf (Sample2_Channel));
 
          Start (Synth_Perf (Hihat_Channel));
+         Apply_Bend (Hihat_Channel);
          HH.Render (Buffer);
          Mix (Hihat_Channel);
          Stop (Synth_Perf (Hihat_Channel));
@@ -1012,6 +1145,8 @@ package body WNM.Synth is
       P     : Pending_Strike renames Pending_Note (Chan);
       Split : constant Natural := Buffer'First + Declick_Samples - 1;
    begin
+      Apply_Bend (Chan);
+
       if not P.Active then
          V.Render (Buffer, Aux);
          Last_Out (Chan) := Buffer (Buffer'Last);
@@ -1023,8 +1158,10 @@ package body WNM.Synth is
       if abs Integer (Last_Out (Chan)) < Declick_Floor then
          --  Nothing meaningful sounding, so there is nothing to declick.
          --  Strike immediately and leave the attack completely alone.
-         V.Set_Pitch
-           (Tresses.MIDI_Pitch (Standard.MIDI.MIDI_UInt8 (P.Key)));
+         Base_Pitch (Chan) :=
+           Tresses.MIDI_Pitch (Standard.MIDI.MIDI_UInt8 (P.Key));
+         Bend_Applied (Chan) := Bend_Offset (Chan);
+         V.Set_Pitch (Bent_Pitch (Chan));
          V.Note_On (Tresses.MIDI_Param (P.Velocity));
          V.Render (Buffer, Aux);
          Last_Out (Chan) := Buffer (Buffer'Last);
@@ -1039,8 +1176,10 @@ package body WNM.Synth is
            ((Tresses.S32 (Buffer (I)) * Declick_Ramp (Split - I)) / 2**15);
       end loop;
 
-      V.Set_Pitch
-        (Tresses.MIDI_Pitch (Standard.MIDI.MIDI_UInt8 (P.Key)));
+      Base_Pitch (Chan) :=
+        Tresses.MIDI_Pitch (Standard.MIDI.MIDI_UInt8 (P.Key));
+      Bend_Applied (Chan) := Bend_Offset (Chan);
+      V.Set_Pitch (Bent_Pitch (Chan));
       V.Note_On (Tresses.MIDI_Param (P.Velocity));
 
       --  And back up, so the incoming note starts from zero too.

@@ -37,7 +37,8 @@ private
                          Filter_Sweep,
                          Stutter_Pattern_A,
                          Stutter_Pattern_B,
-                         Stutter_Env);
+                         Stutter_Env,
+                         Preferences);
 
    subtype Sub_Settings
      is WNM.Project.FX_Settings
@@ -50,8 +51,18 @@ private
 
    function Top_Count is new Enum_Count (Top_Settings);
 
+   type Pref_Item is (Pref_Tab_Wrap, Pref_Glide_Res,
+                      Pref_Bend_Res, Pref_Bend_Range);
+   package Pref_Item_Next is new Enum_Next (Pref_Item, Wrap => True);
+
    type Instance is new Menu_Window with record
       Item : Sub_Settings;
+
+      --  The Preferences tab holds global settings rather than project
+      --  ones, so it sits past the end of the project settings instead of
+      --  being one of them.
+      On_Prefs : Boolean := False;
+      Pref_Sel : Pref_Item := Pref_Tab_Wrap;
 
       Track_Select : Tracks := Tracks'First;
       Edit_Pattern : Boolean := False;

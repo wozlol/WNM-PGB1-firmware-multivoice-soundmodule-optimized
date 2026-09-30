@@ -11,7 +11,7 @@ Upstream firmware lives at
 [wee-noise-makers/WNM-PGB1-firmware](https://github.com/wee-noise-makers/WNM-PGB1-firmware).
 This fork's changes are by Joseph Wozniak ([woz.lol](https://woz.lol)).
 
-**Building.** Two fixes live in pinned dependencies, which Alire keeps in the
+**IMPORTANT NOTE on Building:** Some fixes live in pinned dependencies, which Alire keeps in the
 gitignored `device/alire/cache/`. Build once so Alire fetches the pins, run
 `./patches/apply.sh`, then build again. Always build `--release`, debug builds
 do not run correctly on the hardware.
@@ -30,6 +30,27 @@ do not run correctly on the hardware.
   Removes the inharmonic fizz that the bright waveforms produced up high:
   Sawtooth, both Pulses, Screech and Sine+Saw. Costs flash only, no RAM and no
   extra work per sample.
+- **The staircase static on glides and fades is gone.** Four engines smoothed
+  an envelope with a 5-bit quantizer where the smooth one belonged, so the
+  level stepped between 32 values instead of sliding. Chip Phaser, Chip Echo,
+  Chip Portamento and Wave Portamento.
+- **The system clock runs at 200 MHz.** The I2S divider is exactly
+  representable there, giving exactly 32,000 Hz, and core 0 gets the headroom
+  it needs to keep the audio interrupt from starving the rest of the firmware.
+
+**Pitch bend**
+
+- **Pitch bend works live, on every pitched voice.** Kick, Snare, Bass, Lead,
+  Chord and both samplers, while a note is held and at the moment of the
+  strike. Stock firmware decoded only the low half of the bend value and then
+  dropped the message before it reached the synth, so the wheel did nothing at
+  all.
+- **Range is switchable**, two semitones or one octave.
+- **Resolution is switchable.** High follows the wheel exactly, Low quantizes
+  to 1/8 semitone steps and costs less.
+- Engines that latched their pitch at the strike now retune every buffer, so
+  they follow the wheel instead of only hearing it on a new note. 808 Bass,
+  Sine Kick, Pluck Bass, Wave Pluck and Chip Phaser.
 
 **Bass and Lead**
 
@@ -64,7 +85,10 @@ do not run correctly on the hardware.
   still holding instead of cutting out. On every synth track except Chord,
   which has real polyphony instead. Previously this was attached to the Arp
   mode tab, which had nothing to do with it.
-- **Settings tabs wrap around** at both ends instead of stopping.
+- **A Preferences tab on the Live FX screen**, with four settings: Menu Tab
+  Wrap-Around, Glide Resolution, Pitch Bend Res and Pitch Bend Range.
+- **Settings tabs wrap around** at both ends instead of stopping, on the track,
+  pattern and step screens. Switchable off in Preferences.
 - **The Chord params screen names the current waveform** instead of just saying
   "Waveform".
 - **Lead's Buzz first param is labeled "Comb Brightness"**, which is what it
@@ -74,8 +98,17 @@ do not run correctly on the hardware.
   possible value, so the tab had nothing to cycle to. Commented out rather than
   deleted, in `Valid_Setting`.
 
+**MIDI in**
+
+- **A Note On with zero velocity is treated as a Note Off**, which is how most
+  controllers send releases. Taken literally it struck the voice with no
+  velocity and left a phantom held key in the note-priority bookkeeping.
+
 ## Known limitations
 
+- Hi-hats do not follow pitch bend. They are sample playback stepped one frame
+  at a time rather than an oscillator, so pitching them needs a fractional read
+  rate.
 - Chord is capped at 5 voices. Each voice carries its own envelope for
   click-free release, and 5 is what fits in RAM alongside everything else.
 - Chord's Glide knob does nothing. An earlier implementation caused artifacts

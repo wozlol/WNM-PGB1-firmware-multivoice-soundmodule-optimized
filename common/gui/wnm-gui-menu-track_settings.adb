@@ -25,6 +25,7 @@ with WNM.GUI.Menu.Drawing; use WNM.GUI.Menu.Drawing;
 with WNM.GUI.Popup;
 with WNM.GUI.Menu.Text_Dialog;
 with WNM.Synth;
+with WNM.Persistent;
 
 with WNM.Utils; use WNM.Utils;
 with Tresses;
@@ -127,9 +128,12 @@ package body WNM.GUI.Menu.Track_Settings is
       Result : Sub_Settings := S;
    begin
       loop
-         Result := (if Result = Sub_Settings'Last
-                    then Sub_Settings'First
-                    else Sub_Settings'Succ (Result));
+         if Result = Sub_Settings'Last then
+            exit when not WNM.Persistent.Data.Tab_Wrap;
+            Result := Sub_Settings'First;
+         else
+            Result := Sub_Settings'Succ (Result);
+         end if;
          exit when Result = S;
          if Valid_Setting (M, Result) then
             S := Result;
@@ -148,9 +152,12 @@ package body WNM.GUI.Menu.Track_Settings is
       Result : Sub_Settings := S;
    begin
       loop
-         Result := (if Result = Sub_Settings'First
-                    then Sub_Settings'Last
-                    else Sub_Settings'Pred (Result));
+         if Result = Sub_Settings'First then
+            exit when not WNM.Persistent.Data.Tab_Wrap;
+            Result := Sub_Settings'Last;
+         else
+            Result := Sub_Settings'Pred (Result);
+         end if;
          exit when Result = S;
          if Valid_Setting (M, Result) then
             S := Result;

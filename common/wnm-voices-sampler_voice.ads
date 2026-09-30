@@ -56,6 +56,10 @@ package WNM.Voices.Sampler_Voice is
    procedure Render (This   : in out Instance;
                      Buffer :    out Tresses.Mono_Buffer);
 
+   procedure Set_Bend (This : in out Instance; Offset : Tresses.S16);
+   --  Pitch bend in Tresses pitch units, 128 to the semitone. Applied on
+   --  top of whatever key is playing.
+
    procedure Set_MIDI_Pitch (This : in out Instance;
                              Key  :        MIDI.MIDI_Key);
 
@@ -126,6 +130,11 @@ private
       Phase_Increment : Sample_Phase := 0;
       Start_Phase_Increment  : Sample_Phase := 0;
       Target_Phase_Increment : Sample_Phase := 0;
+
+      Base_Key : MIDI.MIDI_Key := 60;
+      Bend     : Tresses.S16   := 0;
+      --  Key currently playing and the bend applied on top of it, so the
+      --  playback rate can be recomputed when the wheel moves.
 
       Env, Env2 : Tresses.Envelopes.AR.Instance;
 

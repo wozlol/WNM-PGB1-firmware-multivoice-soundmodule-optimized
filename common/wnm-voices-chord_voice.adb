@@ -131,6 +131,43 @@ package body WNM.Voices.Chord_Voice is
       This.Shadow_Count := 0;
    end Init;
 
+   ---------------
+   -- Bent_Incr --
+   ---------------
+
+   function Bent_Incr (Key : MIDI.MIDI_Key; Bend : Tresses.S16) return U32 is
+      P : constant Integer :=
+        Integer (Tresses.MIDI_Pitch (Key)) + Integer (Bend);
+      Clamped : constant Integer :=
+        Integer'Max (Integer (Tresses.Pitch_Range'First),
+                     Integer'Min (Integer (Tresses.Pitch_Range'Last), P));
+   begin
+      return DSP.Compute_Phase_Increment (S16 (Clamped));
+   end Bent_Incr;
+
+   --------------
+   -- Set_Bend --
+   --------------
+
+   procedure Set_Bend (This : in out Instance; Offset : Tresses.S16) is
+      use type Interfaces.Integer_16;
+   begin
+      if Offset = This.Bend then
+         return;
+      end if;
+
+      This.Bend := Offset;
+
+      --  Retune what is already sounding. A voice still waiting on a
+      --  pending reassignment is left alone, it picks the bend up when it
+      --  resolves.
+      for V of This.Voices loop
+         if not V.Pending and then V.Drain /= Drain_Count'Last then
+            V.Current_Phase_Incr := Bent_Incr (V.Note, Offset);
+         end if;
+      end loop;
+   end Set_Bend;
+
    ----------------
    -- Voice_Wave --
    ----------------
@@ -186,6 +223,8 @@ package body WNM.Voices.Chord_Voice is
 
       Wave_Select : constant Wave_Range := Current_Wave (This);
 
+      Bend_Now : constant Tresses.S16 := This.Bend;
+
       --  The user's own waveform is drawn at run time, so there is no
       --  precomputed fine-grained copy of it and it keeps reading the
       --  coarse table it always did.
@@ -234,9 +273,7 @@ package body WNM.Voices.Chord_Voice is
                --  directly for now, revisit glide later as its own focused
                --  pass. Note/Velocity are already the new note's values,
                --  set by Request_Note the moment this voice was assigned.
-               V.Current_Phase_Incr :=
-                 DSP.Compute_Phase_Increment
-                   (S16 (Tresses.MIDI_Pitch (V.Note)));
+               V.Current_Phase_Incr := Bent_Incr (V.Note, Bend_Now);
                V.Zone := Chord_Wavetables.Zone_Of_Key (V.Note);
 
                Envelopes.AR.On (V.Env, V.Velocity);

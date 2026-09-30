@@ -220,13 +220,72 @@ package body WNM.Voices.Sampler_Voice is
    -- Set_MIDI_Pitch --
    --------------------
 
+   function Bent_Increment (Key  : MIDI.MIDI_Key;
+                            Bend : Tresses.S16)
+                            return Sample_Phase;
+
    procedure Set_MIDI_Pitch (This : in out Instance;
                              Key  :        MIDI.MIDI_Key)
    is
    begin
       This.Start_Phase_Increment := This.Phase_Increment;
-      This.Target_Phase_Increment := Pitch_Table2 (Key);
+      This.Base_Key := Key;
+      This.Target_Phase_Increment := Bent_Increment (Key, This.Bend);
    end Set_MIDI_Pitch;
+
+   --------------------
+   -- Bent_Increment --
+   --------------------
+
+   function Bent_Increment (Key  : MIDI.MIDI_Key;
+                            Bend : Tresses.S16)
+                            return Sample_Phase
+   is
+      use type MIDI.MIDI_UInt8;
+
+      --  The table is one entry per semitone, so a bend lands between two
+      --  of them. Interpolating across the gap is plenty for a bend and
+      --  avoids needing a second table.
+      Semis : constant Integer := Integer (Bend) / 128;
+      Frac  : constant Integer := Integer (Bend) mod 128;
+
+      Lo_Key : constant Integer :=
+        Integer'Max (Integer (MIDI.MIDI_Key'First),
+                     Integer'Min (Integer (MIDI.MIDI_Key'Last),
+                                  Integer (Key) + Semis));
+      Hi_Key : constant Integer :=
+        Integer'Min (Integer (MIDI.MIDI_Key'Last), Lo_Key + 1);
+
+      Lo : constant Sample_Phase := Pitch_Table2 (MIDI.MIDI_Key (Lo_Key));
+      Hi : constant Sample_Phase := Pitch_Table2 (MIDI.MIDI_Key (Hi_Key));
+   begin
+      if Frac = 0 or else Hi <= Lo then
+         return Lo;
+      end if;
+
+      return Lo + ((Hi - Lo) * Sample_Phase (Frac)) / 128;
+   end Bent_Increment;
+
+   --------------
+   -- Set_Bend --
+   --------------
+
+   Probe_Key   : Interfaces.Unsigned_32 := 0 with Volatile;  --  TEMP
+   Probe_Bend  : Interfaces.Integer_32  := 0 with Volatile;  --  TEMP
+   Probe_Bent  : Interfaces.Unsigned_32 := 0 with Volatile;  --  TEMP
+
+   procedure Set_Bend (This : in out Instance; Offset : Tresses.S16) is
+      use type Interfaces.Integer_16;
+   begin
+      if Offset = This.Bend then
+         return;
+      end if;
+
+      This.Bend := Offset;
+      This.Target_Phase_Increment := Bent_Increment (This.Base_Key, Offset);
+      This.Phase_Increment := This.Target_Phase_Increment;
+
+   end Set_Bend;
 
    ----------
    -- Init --
