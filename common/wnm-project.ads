@@ -296,6 +296,13 @@ package WNM.Project is
           when Generated   => "Generated",
           when Direct_Poly => "Direct Poly");
 
+   type Chord_Voice_Count is range 1 .. 5;
+   --  How many of the Chord track's physical voices are actually usable
+   --  for polyphony (live playing and Direct Poly steps). Separate from
+   --  Notes_Per_Chord, which is specifically about the Generated mode
+   --  chord-tone count and is capped at 4 by music theory, not voice
+   --  hardware.
+
    type Octave_Offset is range -8 .. 8;
    function Add_Sat (A, B : Octave_Offset) return Octave_Offset;
 
@@ -372,6 +379,8 @@ package WNM.Project is
 
    function Retrig_Enabled (T : Tracks) return Boolean;
 
+   function Chord_Voices (T : Tracks) return Chord_Voice_Count;
+
    function CC_Value_To_Use (P : Patterns; T : Tracks; S : Sequencer_Steps;
                              Id : CC_Id)
                              return MIDI.MIDI_Data;
@@ -426,7 +435,8 @@ package WNM.Project is
                            LFO_Loop,
                            LFO_Sync,
                            Chord_Voicing,
-                           Retrig_Enabled);
+                           Retrig_Enabled,
+                           Chord_Voice_Count_Setting);
 
    for Track_Settings'Size use 8;
    for Track_Settings use (Engine              => 1,
@@ -461,7 +471,8 @@ package WNM.Project is
                            LFO_Loop            => 30,
                            LFO_Sync            => 31,
                            Chord_Voicing       => 32,
-                           Retrig_Enabled      => 33);
+                           Retrig_Enabled      => 33,
+                           Chord_Voice_Count_Setting => 34);
 
    subtype User_Track_Settings
      is Track_Settings range Engine .. Track_Mode;
@@ -491,6 +502,9 @@ package WNM.Project is
    procedure Chord_Voicing_Prev (T : Tracks);
 
    procedure Retrig_Toggle (T : Tracks);
+
+   procedure Chord_Voices_Next (T : Tracks);
+   procedure Chord_Voices_Prev (T : Tracks);
 
    -------------
    -- Pattern --
@@ -861,6 +875,10 @@ private
                                                       Wrap => True);
    use Chord_Voicing_Kind_Next;
 
+   package Chord_Voice_Count_Next is new Enum_Next (T    => Chord_Voice_Count,
+                                                     Wrap => False);
+   use Chord_Voice_Count_Next;
+
    package Alt_Slider_Control_Next is new Enum_Next (T  => Alt_Slider_Control,
                                                      Wrap => True);
    use Alt_Slider_Control_Next;
@@ -984,6 +1002,7 @@ private
       --  Last-note-priority mono retrig (see WNM.Note_Priority). Applies
       --  to every synth track except Chord, which has its own
       --  independent polyphony and ignores this setting.
+      Chord_Voices : Chord_Voice_Count := Chord_Voice_Count'Last;
    end record;
 
    Kick_Track     : constant Tracks := 1;
@@ -1026,7 +1045,8 @@ private
       Arp_Notes => Arp_Notes_Kind'First,
       Notes_Per_Chord => Chord_Settings.Chord_Index_Range'Last,
       Chord_Voicing => Direct_Poly,
-      Retrig_Enabled => True
+      Retrig_Enabled => True,
+      Chord_Voices => Chord_Voice_Count'Last
      );
 
    procedure Set_Track_Defaults (Tracks : out Track_Arr);

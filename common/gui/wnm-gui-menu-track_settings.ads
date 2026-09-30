@@ -57,29 +57,39 @@ private
    function Valid_Setting (M : Project.Track_Mode_Kind;
                            S : Sub_Settings)
                            return Boolean
+   --  Arp_Notes ("Arpeggiator notes") is left out of every mode below on
+   --  purpose: Arp_Notes_Kind only has one possible value (Chord), so the
+   --  tab has nothing to cycle to and just sits there inert. Re-add
+   --  `Arp_Notes |` to the relevant mode(s) below once Arp_Notes_Kind
+   --  actually has more than one value.
    is (case M is
           when Project.MIDI_Mode =>
              S in Track_Mode | CC_Default_A .. CC_Default_D |
                   MIDI_Chan | MIDI_Instrument | Arp_Mode |
                   Track_Octave_Offset | Shuffle |
-                  Arp_Notes | Notes_Per_Chord | CC_Ctrl_A .. CC_Label_D,
+                  Notes_Per_Chord | CC_Ctrl_A .. CC_Label_D,
 
-          --  Multi engines
+          --  Multi engines. The "Notes_Per_Chord" screen is shared: for
+          --  these it shows/toggles Retrig, for Chord it shows the
+          --  Chord-specific settings instead (see Valid_Setting's use
+          --  sites in the body).
           when Project.Lead_Mode | Project.Bass_Mode | Project.Kick_Mode |
                Project.Snare_Mode | Project.Hihat_Mode |
                Project.Sample1_Mode | Project.Sample2_Mode =>
              S in Track_Mode | Engine | Volume | Pan | Master_FX | Arp_Mode |
                   Track_Octave_Offset | Shuffle |
-                  Arp_Notes | CC_Default_A .. CC_Default_D |
-                  LFO_Rate | LFO_Amplitude | LFO_Target | LFO_Shape,
+                  CC_Default_A .. CC_Default_D |
+                  LFO_Rate | LFO_Amplitude | LFO_Target | LFO_Shape |
+                  Notes_Per_Chord,
 
-          --  Chord engine: same as the other multi engines, plus the
-          --  Chord-specific settings (notes per chord and chord voicing
-          --  mode, both edited from the "Notes per Chord" screen).
+          --  Chord engine: same as the other multi engines, but the
+          --  shared "Notes_Per_Chord" screen shows the Chord-specific
+          --  settings (notes per chord and chord voicing mode) instead
+          --  of Retrig, which doesn't apply to Chord's own polyphony.
           when Project.Chord_Mode =>
              S in Track_Mode | Engine | Volume | Pan | Master_FX | Arp_Mode |
                   Track_Octave_Offset | Shuffle |
-                  Arp_Notes | CC_Default_A .. CC_Default_D |
+                  CC_Default_A .. CC_Default_D |
                   LFO_Rate | LFO_Amplitude | LFO_Target | LFO_Shape |
                   Notes_Per_Chord,
 

@@ -1,0 +1,46 @@
+diff --git a/src/noise_nugget_sdk-audio-aic3105.adb b/src/noise_nugget_sdk-audio-aic3105.adb
+index 2e1d637..5d0da37 100644
+--- a/src/noise_nugget_sdk-audio-aic3105.adb
++++ b/src/noise_nugget_sdk-audio-aic3105.adb
+@@ -298,10 +298,13 @@ package body Noise_Nugget_SDK.Audio.AIC3105 is
+                                         P => 2);
+ 
+       --  fS(ref) = (24_000_000 x 5.4613 x 1)/(2048 x 2) = 31_999.80Hz
+-      FS_32000 : constant Clock_Cfg := (J => 5,
+-                                        D => 4613,
+-                                        R => 1,
+-                                        P => 2);
++      --  Sourced from BCLK, not MCLK, so the codec's rate is defined by
++      --  the incoming bit clock and cannot drift against it:
++      --  fS(ref) = (1_024_000 x 32.0000 x 2)/(2048 x 1) = 32_000.00Hz exact.
++      FS_32000 : constant Clock_Cfg := (J => 32,
++                                        D => 0,
++                                        R => 2,
++                                        P => 1);
+ 
+       --  fS(ref) = (24_000_000 x 7.5264 x 1)/(2048 x 4) = 32_000.00Hz
+       FS_22050 : constant Clock_Cfg := (J => 7,
+@@ -388,15 +391,21 @@ package body Noise_Nugget_SDK.Audio.AIC3105 is
+       end;
+ 
+       --  Select the PLLCLK_IN source. 0: MCLK, 1: GPIO2, 2: BCLK
++      --  BCLK, so the codec's sample clock comes from the same clock that
++      --  carries the data. Sourced from MCLK instead, the codec runs at its
++      --  own rate, and any difference between that and the rate the I2S
++      --  clocks actually arrive at makes it slip once per beat of the
++      --  difference. That is an audible periodic click which no amount of
++      --  work on the audio data can remove.
+       Success := Success and then
+-        Write_Register_Multi (AIC3X_CLKGEN_CTRL_REG, 5, 4, 0);
++        Write_Register_Multi (AIC3X_CLKGEN_CTRL_REG, 5, 4, 2);
+ 
+       --  Select the CLKDIV_IN source. 0: MCLK, 1: GPIO2, 2: BCLK
+       --
+       --  Note: When PLL is used CLKDIV_IN still needs some kind of clock
+       --  signal. So if there's no MCLK, BCLK should be used here as well
+       Success := Success and then
+-        Write_Register_Multi (AIC3X_CLKGEN_CTRL_REG, 6, 7, 0);
++        Write_Register_Multi (AIC3X_CLKGEN_CTRL_REG, 6, 7, 2);
+ 
+       --  Enable PLL
+       Success := Success and then

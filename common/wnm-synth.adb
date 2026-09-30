@@ -209,8 +209,15 @@ package body WNM.Synth is
         Bitcrusher_Channel => WNM.Mixer.FX_Bitcrush'Access);
 
    LFO_Targets : array (Tresses_Channels) of MIDI.MIDI_Data :=
-     (others => Voice_Pan_CC);
-     --  (others => MIDI.MIDI_Data'Last);
+     (others => MIDI.MIDI_Data'Last);
+   --  MIDI_Data'Last means "no target", since the apply step below only
+   --  acts on targets inside LFO_Compatible_CC. This has to match the
+   --  project's own default of LFO_Target_Kind'Last, which is None.
+   --  It used to default to Voice_Pan_CC, which left every channel's LFO
+   --  modulating pan from boot until a project load happened to sync the
+   --  real target over it. Pan is applied as one constant per buffer, so
+   --  a moving pan steps the signal every 256 samples, which is heard as
+   --  a slow wobble with fine continuous crackle riding on it.
 
    LFOs       : array (Tresses_Channels) of Tresses.LFO.Instance;
    LFO_Syncs  : array (Tresses_Channels) of Boolean := (others => False);
@@ -674,6 +681,13 @@ package body WNM.Synth is
                                    Msg.MIDI_Evt.Controller_Value /= 0;
                               end if;
 
+                           when Chord_Voices_CC =>
+                              if Msg.MIDI_Evt.Chan = Chord_Channel then
+                                 Chord.Set_Active_Voices
+                                   (Natural
+                                      (Msg.MIDI_Evt.Controller_Value) + 1);
+                              end if;
+
                            when others =>
                               null;
                         end case;
@@ -925,6 +939,13 @@ package body WNM.Synth is
    is
       E : constant Tresses.Engines := Lead_Engines (Engine);
    begin
+      if E = Tresses.Voice_Analog_Buzz and then Id = 1 then
+         --  Tresses labels this "Waveform", but it doesn't pick a waveform.
+         --  It shifts which of the band-limited comb tables the oscillator
+         --  reads, so what it actually controls is brightness.
+         return "Comb Brightness";
+      end if;
+
       return Tresses.Macro.Param_Label (E, Id);
    end Lead_Param_Label;
 

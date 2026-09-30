@@ -69,6 +69,7 @@ package WNM.Synth is
    Voice_LFO_Loop_CC     : constant MIDI.MIDI_Data := 13;
    Voice_LFO_Sync_CC     : constant MIDI.MIDI_Data := 14;
    Voice_Retrig_CC       : constant MIDI.MIDI_Data := 15;
+   Chord_Voices_CC       : constant MIDI.MIDI_Data := 16;
 
    LFO_Amp_Mode_Positive : constant MIDI.MIDI_Data :=
      Tresses.LFO.Positive'Enum_Rep;

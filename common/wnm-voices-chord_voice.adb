@@ -19,29 +19,66 @@
 --                                                                           --
 -------------------------------------------------------------------------------
 
+with Interfaces;
+
 with Tresses.DSP;
 with Tresses.Envelopes.AR; use Tresses.Envelopes.AR;
 with Tresses.Resources; use Tresses.Resources;
 with WNM.Synth;
+with WNM.Voices.Chord_Wavetables;
 
 package body WNM.Voices.Chord_Voice is
 
-   type Wave_Range is range 0 .. 12;
-   Waveforms : constant array (Wave_Range) of
-     not null access constant Table_257_S16
-       := (WAV_Sine'Access,
-           WAV_Sine_Warp1'Access,
-           WAV_Sine_Warp2'Access,
-           WAV_Sine_Warp3'Access,
-           WAV_Triangle'Access,
-           WAV_Sawtooth'Access,
-           WAV_Chip_Pulse_25'Access,
-           WAV_Chip_Pulse_50'Access,
-           WAV_Chip_Triangle'Access,
-           WAV_Screech'Access,
-           WAV_Combined_Sin_Saw'Access,
-           WAV_Combined_Trig_Sin'Access,
-           WAV_Combined_Square_Sin'Access);
+   use type Interfaces.Unsigned_16;
+
+   subtype Wave_Range is Chord_Wavetables.Wave_Index;
+
+   Wave_Count : constant Param_Range :=
+     Param_Range (Wave_Range'Last) + 1;
+
+   function Wave_Name (W : Wave_Range) return String
+   is (case W is
+          when 0  => "Sine",
+          when 1  => "Sine Warp 1",
+          when 2  => "Sine Warp 2",
+          when 3  => "Sine Warp 3",
+          when 4  => "Triangle",
+          when 5  => "Sawtooth",
+          when 6  => "Pulse 25%",
+          when 7  => "Pulse 50%",
+          when 8  => "Chip Triangle",
+          when 9  => "Screech",
+          when 10 => "Sine + Saw",
+          when 11 => "Tri + Sine",
+          when 12 => "Square + Sine");
+
+   function Current_Wave (This : Instance) return Wave_Range;
+
+   ------------------
+   -- Current_Wave --
+   ------------------
+
+   function Current_Wave (This : Instance) return Wave_Range is
+      Mod_Param : constant Param_Range :=
+        This.Params (P_Waveform) / (Param_Range'Last / Wave_Count);
+   begin
+      return Wave_Range
+        (Param_Range'Min (Mod_Param, Param_Range (Wave_Range'Last)));
+   end Current_Wave;
+
+   -----------------
+   -- Param_Label --
+   -----------------
+
+   overriding
+   function Param_Label (This : Instance; Id : Param_Id) return String
+   is (case Id is
+          when P_Waveform => (if This.Engine /= Custom_Waveform
+                              then Wave_Name (Current_Wave (This))
+                              else "-Unused-"),
+          when P_Glide    => "Glide",
+          when P_Attack   => "Attack",
+          when P_Release  => "Release");
 
    ------------
    -- Engine --
@@ -64,6 +101,17 @@ package body WNM.Voices.Chord_Voice is
       pragma Warnings (On, "can only be True");
    end Set_Engine;
 
+   -----------------------
+   -- Set_Active_Voices --
+   -----------------------
+
+   procedure Set_Active_Voices (This : in out Instance;
+                                N    :        Positive)
+   is
+   begin
+      This.Active_Voices := Voice_Id (N);
+   end Set_Active_Voices;
+
    ----------
    -- Init --
    ----------
@@ -76,6 +124,7 @@ package body WNM.Voices.Chord_Voice is
          V.Age := 0;
          V.Pending := False;
          V.Pending_Wait := 0;
+         V.Drain := Drain_Count'Last;
          Envelopes.AR.Init (V.Env, Do_Hold => True);
       end loop;
       This.Next_Age := 0;
@@ -89,17 +138,43 @@ package body WNM.Voices.Chord_Voice is
    function Voice_Wave (This : Instance;
                         Wave_Select : Wave_Range;
                         V : Voice_Id)
-                        return not null access constant Table_257_S16
+                        return Chord_Wavetables.Table_Access
    is
       Mix_Sel : constant Wave_Range :=
         Wave_Range ((U32 (Wave_Select) + U32 (V)) mod
                       (U32 (Wave_Range'Last) + 1));
+
+      --  Band-limited copy matching this voice's sounding pitch, so the
+      --  harmonics that would fold back as inharmonic fizz are already
+      --  gone.
+      Zone : constant Chord_Wavetables.Zone_Index := This.Voices (V).Zone;
    begin
-      return (case This.Engine is
-                 when Waveform        => Waveforms (Wave_Select),
-                 when Mixed_Waveforms => Waveforms (Mix_Sel),
-                 when Custom_Waveform => WNM.Synth.User_Waveform'Access);
+      return (if This.Engine = Mixed_Waveforms
+              then Chord_Wavetables.Tables (Mix_Sel, Zone)
+              else Chord_Wavetables.Tables (Wave_Select, Zone));
    end Voice_Wave;
+
+   ---------------------
+   -- Interpolate1024 --
+   ---------------------
+
+   function Interpolate1024 (T     : Chord_Wavetables.Table_1025_S16;
+                             Phase :  U32)
+                             return S16
+   is
+      --  Same two-point interpolation as Tresses does on its 257-point
+      --  tables, just with 10 bits of index and 15 of the 22 remaining
+      --  fraction bits. Four times the grid means a sixteenth of the
+      --  interpolation error, which is where the extra purity comes from,
+      --  and it costs no more work than the coarse version.
+      P : constant Interfaces.Unsigned_16 :=
+        Interfaces.Unsigned_16 (Phase / 2**22);
+      A : constant S32 := S32 (T (P));
+      B : constant S32 := S32 (T (P + 1));
+      V : constant S32 := S32 ((Phase / 2**7) mod 2**15);
+   begin
+      return S16 (A + ((B - A) * V) / 2**15);
+   end Interpolate1024;
 
    ------------
    -- Render --
@@ -109,25 +184,72 @@ package body WNM.Voices.Chord_Voice is
                      Buffer :    out Tresses.Mono_Buffer)
    is
 
-      Mod_Param : constant Param_Range :=
-        This.Params (P_Waveform) / (Param_Range'Last / Waveforms'Length);
+      Wave_Select : constant Wave_Range := Current_Wave (This);
 
-      Wave_Select : constant Wave_Range :=
-        Wave_Range
-          (Param_Range'Min (Mod_Param, Param_Range (Wave_Range'Last)));
+      --  The user's own waveform is drawn at run time, so there is no
+      --  precomputed fine-grained copy of it and it keeps reading the
+      --  coarse table it always did.
+      Custom : constant Boolean := This.Engine = Custom_Waveform;
 
-      Waveform_1 : constant not null access constant Table_257_S16 :=
-        Voice_Wave (This, Wave_Select, 1);
-      Waveform_2 : constant not null access constant Table_257_S16 :=
-        Voice_Wave (This, Wave_Select, 2);
-      Waveform_3 : constant not null access constant Table_257_S16 :=
-        Voice_Wave (This, Wave_Select, 3);
-      Waveform_4 : constant not null access constant Table_257_S16 :=
-        Voice_Wave (This, Wave_Select, 4);
+      Voice_Waveform : array (Voice_Id) of Chord_Wavetables.Table_Access :=
+        (others => Chord_Wavetables.Tables
+           (Wave_Range'First, Chord_Wavetables.Zone_Index'First));
 
       Sample : S32;
 
       All_Dead : Boolean := True;
+
+      function Voice_Sample (V : in out Voice; Raw : S16) return S32
+      is
+      begin
+         --  Callers skip fully silent voices entirely, so reaching here
+         --  means this voice still has something to contribute. If its
+         --  envelope has reached Dead, keep counting down the samples the
+         --  envelope's output smoother needs to finish decaying, otherwise
+         --  the tail gets cut off mid-decay. See Drain.
+         if not V.On and then not V.Pending
+           and then Envelopes.AR.Current_Segment (V.Env) =
+                      Envelopes.AR.Dead
+         then
+            V.Drain := V.Drain + 1;
+         end if;
+
+         --  A voice being reassigned (stolen, or revived from the shadow
+         --  queue) can't just wait for its outgoing note to release, that
+         --  would defeat the point of stealing. But switching pitch and
+         --  re-triggering the envelope immediately can pop: the outgoing
+         --  note could be at any waveform value and any envelope level. So
+         --  instead the outgoing note keeps rendering completely normally
+         --  until its own waveform comes near zero (Pending_Wait bounds how
+         --  long we wait, in case an unusual waveform rarely comes near
+         --  zero), and only then do we actually switch to the new pitch and
+         --  trigger its envelope.
+         if V.Pending then
+            if abs Integer (Raw) <= Integer (Near_Zero)
+              or else V.Pending_Wait >= Max_Pending_Wait
+            then
+               --  Glide was tried here (stepping toward the new pitch
+               --  gradually) and pulled back out: it added per-sample cost
+               --  to every voice and caused audible artifacts. Snap
+               --  directly for now, revisit glide later as its own focused
+               --  pass. Note/Velocity are already the new note's values,
+               --  set by Request_Note the moment this voice was assigned.
+               V.Current_Phase_Incr :=
+                 DSP.Compute_Phase_Increment
+                   (S16 (Tresses.MIDI_Pitch (V.Note)));
+               V.Zone := Chord_Wavetables.Zone_Of_Key (V.Note);
+
+               Envelopes.AR.On (V.Env, V.Velocity);
+               V.Pending := False;
+            else
+               V.Pending_Wait := V.Pending_Wait + 1;
+            end if;
+         end if;
+
+         Envelopes.AR.Render (V.Env);
+         return (S32 (Raw) * Low_Pass (V.Env)) / 2**15;
+      end Voice_Sample;
+
    begin
 
       if This.Do_Init then
@@ -135,17 +257,23 @@ package body WNM.Voices.Chord_Voice is
          This.Init;
       end if;
 
+      if not Custom then
+         for I in Voice_Id loop
+            Voice_Waveform (I) := Voice_Wave (This, Wave_Select, I);
+         end loop;
+      end if;
+
       for V of This.Voices loop
          Set_Attack (V.Env, This.Params (P_Attack));
          Set_Release (V.Env, This.Params (P_Release));
-         --  A voice with a pending note (its envelope hasn't been
-         --  triggered yet, that only happens once its Pending transition
-         --  resolves inside the per-sample loop below) must still count
-         --  as "not dead" here, or the per-sample loop that would
-         --  actually resolve it never runs and the voice is stuck silent.
-         if V.Pending
-           or else Envelopes.AR.Current_Segment (V.Env) /= Envelopes.AR.Dead
-         then
+         --  Drain short of its limit is the one condition that means this
+         --  voice can still contribute audio, and it covers every such
+         --  case: Request_Note zeroes it for each new note, so a held,
+         --  releasing, pending or still-draining voice all read as not
+         --  dead, and only a voice that has finished draining reads as
+         --  dead. Getting this wrong silences the whole buffer and so
+         --  strands whatever still had to be rendered.
+         if V.Drain /= Drain_Count'Last then
             All_Dead := False;
          end if;
       end loop;
@@ -153,95 +281,40 @@ package body WNM.Voices.Chord_Voice is
       if All_Dead then
          Buffer := (others => 0);
       else
-
-         declare
-            V1 : Voice renames This.Voices (Voice_Id'First + 0);
-            V2 : Voice renames This.Voices (Voice_Id'First + 1);
-            V3 : Voice renames This.Voices (Voice_Id'First + 2);
-            V4 : Voice renames This.Voices (Voice_Id'First + 3);
-
-            S1, S2, S3, S4 : S32;
-
-            function Voice_Sample
-              (V        : in out Voice;
-               Waveform : not null access constant Table_257_S16)
-               return S32
-            is
-            begin
-               --  A voice that isn't held, isn't waiting on a pending
-               --  reassignment, and has fully finished its own envelope
-               --  is contributing nothing: skip the waveform lookup and
-               --  envelope processing for it entirely instead of doing
-               --  that work uselessly every sample. With 4 independent
-               --  per-voice envelopes now, doing this for genuinely idle
-               --  voices adds up and risked missing the audio deadline,
-               --  which sounds like a "random" pop unrelated to any
-               --  particular note event.
-               if not V.On and then not V.Pending
-                 and then Envelopes.AR.Current_Segment (V.Env) =
-                            Envelopes.AR.Dead
-               then
-                  return 0;
-               end if;
-
+         for Elt of Buffer loop
+            Sample := 0;
+            for I in Voice_Id loop
                declare
-                  Raw : constant S16 :=
-                    DSP.Interpolate824 (Waveform.all, V.Phase);
+                  V : Voice renames This.Voices (I);
                begin
-                  --  A voice being reassigned (stolen, or revived from the
-                  --  shadow queue) can't just wait for its outgoing note
-                  --  to release, that would defeat the point of stealing.
-                  --  But switching pitch and re-triggering the envelope
-                  --  immediately can pop: the outgoing note could be at
-                  --  any waveform value and any envelope level. So instead
-                  --  the outgoing note keeps rendering completely normally
-                  --  until its own waveform comes near zero (Pending_Wait
-                  --  bounds how long we wait, in case an unusual waveform
-                  --  rarely comes near zero), and only then do we actually
-                  --  switch to the new pitch and trigger its envelope.
-                  if V.Pending then
-                     if abs Integer (Raw) <= Integer (Near_Zero)
-                       or else V.Pending_Wait >= Max_Pending_Wait
-                     then
-                        V.Target_Phase_Incr :=
-                          DSP.Compute_Phase_Increment
-                            (S16 (Tresses.MIDI_Pitch (V.Pending_Key)));
-                        --  Glide was tried here (stepping toward Target
-                        --  gradually) and pulled back out: it added
-                        --  per-sample cost to every voice and caused
-                        --  audible artifacts. Snap directly for now;
-                        --  revisit glide later as its own focused pass.
-                        V.Current_Phase_Incr := V.Target_Phase_Incr;
+                  V.Phase := V.Phase + V.Current_Phase_Incr;
 
-                        Envelopes.AR.On (V.Env, V.Pending_Velocity);
-                        V.Pending := False;
-                     else
-                        V.Pending_Wait := V.Pending_Wait + 1;
-                     end if;
+                  --  Skip voices that have gone fully silent, so neither
+                  --  the table read nor the envelope work is done for them.
+                  if V.Drain /= Drain_Count'Last then
+                     declare
+                        Raw : constant S16 :=
+                          (if Custom
+                           then DSP.Interpolate824
+                                  (WNM.Synth.User_Waveform, V.Phase)
+                           else Interpolate1024
+                                  (Voice_Waveform (I).all, V.Phase));
+                     begin
+                        Sample := Sample + Voice_Sample (V, Raw);
+                     end;
                   end if;
-
-                  Envelopes.AR.Render (V.Env);
-                  return (S32 (Raw) * Low_Pass (V.Env)) / 2 ** 15;
                end;
-            end Voice_Sample;
-         begin
-            for Elt of Buffer loop
-
-               V1.Phase := V1.Phase + V1.Current_Phase_Incr;
-               V2.Phase := V2.Phase + V2.Current_Phase_Incr;
-               V3.Phase := V3.Phase + V3.Current_Phase_Incr;
-               V4.Phase := V4.Phase + V4.Current_Phase_Incr;
-
-               S1 := Voice_Sample (V1, Waveform_1);
-               S2 := Voice_Sample (V2, Waveform_2);
-               S3 := Voice_Sample (V3, Waveform_3);
-               S4 := Voice_Sample (V4, Waveform_4);
-
-               Sample := (S1 + S2 + S3 + S4) / 4;
-
-               Elt := S16 (DSP.Clip_S16 (Sample));
             end loop;
-         end;
+
+            --  Fixed divisor rather than the configured voice count, so
+            --  changing the voice count doesn't change how loud a single
+            --  note is, and so one held note keeps its full resolution
+            --  instead of being scaled down and then back up. Matches
+            --  stock loudness. Clip_S16 covers the rare case of several
+            --  voices peaking in phase together.
+            Sample := Sample / 4;
+            Elt := S16 (DSP.Clip_S16 (Sample));
+         end loop;
       end if;
    end Render;
 
@@ -269,9 +342,8 @@ package body WNM.Voices.Chord_Voice is
       This.Next_Age := This.Next_Age + 1;
 
       V.Pending := True;
-      V.Pending_Key := Key;
-      V.Pending_Velocity := Velocity;
       V.Pending_Wait := 0;
+      V.Drain := 0;
    end Request_Note;
 
    -----------------
@@ -336,18 +408,19 @@ package body WNM.Voices.Chord_Voice is
       Oldest : Voice_Id := Voice_Id'First;
    begin
 
-      --  Try to find a free voice
-      for Id in This.Voices'Range loop
+      --  Try to find a free voice, among only the currently active ones:
+      --  voices beyond Active_Voices are never assigned a note.
+      for Id in Voice_Id'First .. This.Active_Voices loop
          if not This.Voices (Id).On then
             Request_Note (This, Id, Key, Velocity);
             return;
          end if;
       end loop;
 
-      --  All voices are in use: steal the oldest one for instant
+      --  All active voices are in use: steal the oldest one for instant
       --  feedback, but remember the note it was playing so it can be
       --  revived into the next voice that frees up (see Shadow_Depth).
-      for Id in This.Voices'Range loop
+      for Id in Voice_Id'First .. This.Active_Voices loop
          if This.Voices (Id).Age < This.Voices (Oldest).Age then
             Oldest := Id;
          end if;
@@ -374,7 +447,7 @@ package body WNM.Voices.Chord_Voice is
          return;
       end if;
 
-      for Id in This.Voices'Range loop
+      for Id in Voice_Id'First .. This.Active_Voices loop
          if This.Voices (Id).On and then This.Voices (Id).Note = Key then
             This.Voices (Id).On := False;
 
@@ -382,8 +455,8 @@ package body WNM.Voices.Chord_Voice is
                --  Another note is waiting because it got voice-stolen
                --  while still held: revive it into this freed voice
                --  right away (with its own fresh Attack), like a classic
-               --  4-voice poly synth's note memory, instead of releasing
-               --  this voice.
+               --  poly synth's note memory, instead of releasing this
+               --  voice.
                declare
                   Next : constant Shadow_Entry :=
                     This.Shadow (This.Shadow_Count);

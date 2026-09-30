@@ -376,6 +376,9 @@ package body WNM.Project.Storage is
                      Output.Push
                        (Out_UInt (Boolean'Pos (Track.Retrig_Enabled)));
 
+                  when Chord_Voice_Count_Setting =>
+                     Output.Push (Out_UInt (Integer (Track.Chord_Voices)));
+
                   when MIDI_Chan =>
                      Output.Push (Out_UInt (Track.Chan));
 
@@ -733,6 +736,7 @@ package body WNM.Project.Storage is
         (Chord_Settings.Chord_Index_Range);
       procedure Read is new File_In.Read_Gen_Int (Shuffle_Value);
       procedure Read is new File_In.Read_Gen_Enum (Chord_Voicing_Kind);
+      procedure Read is new File_In.Read_Gen_Int (Chord_Voice_Count);
 
       T_Id : Tracks;
       S : Track_Settings;
@@ -795,6 +799,8 @@ package body WNM.Project.Storage is
                when Notes_Per_Chord => Read (Input, Track.Notes_Per_Chord);
                when Chord_Voicing => Read (Input, Track.Chord_Voicing);
                when Retrig_Enabled => Read (Input, Track.Retrig_Enabled);
+               when Chord_Voice_Count_Setting =>
+                  Read (Input, Track.Chord_Voices);
                when MIDI_Chan   => Read (Input, Track.Chan);
                when MIDI_Instrument => null;
                when CC_Default_A => Read (Input, Track.CC (A).Value);

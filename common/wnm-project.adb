@@ -926,6 +926,13 @@ package body WNM.Project is
    function Retrig_Enabled (T : Tracks) return Boolean
    is (G_Project.Tracks (T).Retrig_Enabled);
 
+   ------------------
+   -- Chord_Voices --
+   ------------------
+
+   function Chord_Voices (T : Tracks) return Chord_Voice_Count
+   is (G_Project.Tracks (T).Chord_Voices);
+
    ---------------------
    -- CC_Value_To_Use --
    ---------------------
@@ -1135,6 +1142,7 @@ package body WNM.Project is
           when LFO_Sync        => Synth.Voice_LFO_Sync_CC,
           when LFO_Target      => Synth.Voice_LFO_Target_CC,
           when Retrig_Enabled  => Synth.Voice_Retrig_CC,
+          when Chord_Voice_Count_Setting => Synth.Chord_Voices_CC,
           when CC_Default_A    => Synth.Voice_Param_1_CC,
           when CC_Default_B    => Synth.Voice_Param_2_CC,
           when CC_Default_C    => Synth.Voice_Param_3_CC,
@@ -1184,6 +1192,8 @@ package body WNM.Project is
                     when LFO_Sync        => Track.LFO_Sync'Enum_Rep,
                     when Retrig_Enabled  =>
                       (if Track.Retrig_Enabled then 1 else 0),
+                    when Chord_Voice_Count_Setting =>
+                      MIDI.MIDI_Data (Track.Chord_Voices - 1),
                     when CC_Default_A    => Track.CC (A).Value,
                     when CC_Default_B    => Track.CC (B).Value,
                     when CC_Default_C    => Track.CC (C).Value,
@@ -1229,7 +1239,16 @@ package body WNM.Project is
          when LFO_Target      => Set (Track.LFO_Target, V);
          when Arp_Mode        => Set (Track.Arp_Mode, V);
          when Arp_Notes       => Set (Track.Arp_Notes, V);
-         when Notes_Per_Chord => Set (Track.Notes_Per_Chord, V);
+         when Notes_Per_Chord =>
+            if Mode (T) = Chord_Mode then
+               if Track.Chord_Voicing = Direct_Poly then
+                  Set (Track.Chord_Voices, V);
+               else
+                  Set (Track.Notes_Per_Chord, V);
+               end if;
+            else
+               Set (Track.Retrig_Enabled, V);
+            end if;
          when MIDI_Chan       => Set (Track.Chan, V);
          when MIDI_Instrument => null;
          when CC_Default_A    => CC_Set (T, A, Track.CC (A).Value, V);
@@ -1275,7 +1294,19 @@ package body WNM.Project is
          when LFO_Target      => Next (Track.LFO_Target);
          when Arp_Mode        => Next (Track.Arp_Mode);
          when Arp_Notes       => Next (Track.Arp_Notes);
-         when Notes_Per_Chord => Next (Track.Notes_Per_Chord);
+         when Notes_Per_Chord =>
+            --  Shared screen: on the Chord track it edits Chord's own
+            --  settings, on every other track it toggles Retrig.
+            if Mode (T) = Chord_Mode then
+               if Track.Chord_Voicing = Direct_Poly then
+                  Next (Track.Chord_Voices);
+                  Synchronize_Synth_Setting (T, Chord_Voice_Count_Setting);
+               else
+                  Next (Track.Notes_Per_Chord);
+               end if;
+            else
+               Retrig_Toggle (T);
+            end if;
          when MIDI_Chan       => Next (Track.Chan);
          when MIDI_Instrument => null;
          when CC_Default_A    => CC_Next (T, A, Track.CC (A).Value);
@@ -1320,7 +1351,17 @@ package body WNM.Project is
          when LFO_Target      => Prev (Track.LFO_Target);
          when Arp_Mode        => Prev (Track.Arp_Mode);
          when Arp_Notes       => Prev (Track.Arp_Notes);
-         when Notes_Per_Chord => Prev (Track.Notes_Per_Chord);
+         when Notes_Per_Chord =>
+            if Mode (T) = Chord_Mode then
+               if Track.Chord_Voicing = Direct_Poly then
+                  Prev (Track.Chord_Voices);
+                  Synchronize_Synth_Setting (T, Chord_Voice_Count_Setting);
+               else
+                  Prev (Track.Notes_Per_Chord);
+               end if;
+            else
+               Retrig_Toggle (T);
+            end if;
          when MIDI_Chan       => Prev (Track.Chan);
          when MIDI_Instrument => null;
          when CC_Default_A    => CC_Prev (T, A, Track.CC (A).Value);
@@ -1365,7 +1406,17 @@ package body WNM.Project is
          when LFO_Target      => Next_Fast (Track.LFO_Target);
          when Arp_Mode        => Next_Fast (Track.Arp_Mode);
          when Arp_Notes       => Next_Fast (Track.Arp_Notes);
-         when Notes_Per_Chord => Next_Fast (Track.Notes_Per_Chord);
+         when Notes_Per_Chord =>
+            if Mode (T) = Chord_Mode then
+               if Track.Chord_Voicing = Direct_Poly then
+                  Next_Fast (Track.Chord_Voices);
+                  Synchronize_Synth_Setting (T, Chord_Voice_Count_Setting);
+               else
+                  Next_Fast (Track.Notes_Per_Chord);
+               end if;
+            else
+               Retrig_Toggle (T);
+            end if;
          when MIDI_Chan       => Next_Fast (Track.Chan);
          when MIDI_Instrument => null;
          when CC_Default_A    => CC_Next (T, A, Track.CC (A).Value, True);
@@ -1410,7 +1461,17 @@ package body WNM.Project is
          when LFO_Target      => Prev_Fast (Track.LFO_Target);
          when Arp_Mode        => Prev_Fast (Track.Arp_Mode);
          when Arp_Notes       => Prev_Fast (Track.Arp_Notes);
-         when Notes_Per_Chord => Prev_Fast (Track.Notes_Per_Chord);
+         when Notes_Per_Chord =>
+            if Mode (T) = Chord_Mode then
+               if Track.Chord_Voicing = Direct_Poly then
+                  Prev_Fast (Track.Chord_Voices);
+                  Synchronize_Synth_Setting (T, Chord_Voice_Count_Setting);
+               else
+                  Prev_Fast (Track.Notes_Per_Chord);
+               end if;
+            else
+               Retrig_Toggle (T);
+            end if;
          when MIDI_Chan       => Prev_Fast (Track.Chan);
          when MIDI_Instrument => null;
          when CC_Default_A    => CC_Prev (T, A, Track.CC (A).Value, True);
@@ -1468,6 +1529,26 @@ package body WNM.Project is
         not G_Project.Tracks (T).Retrig_Enabled;
       Synchronize_Synth_Setting (T, Retrig_Enabled);
    end Retrig_Toggle;
+
+   ------------------------
+   -- Chord_Voices_Next --
+   ------------------------
+
+   procedure Chord_Voices_Next (T : Tracks) is
+   begin
+      Next (G_Project.Tracks (T).Chord_Voices);
+      Synchronize_Synth_Setting (T, Chord_Voice_Count_Setting);
+   end Chord_Voices_Next;
+
+   ------------------------
+   -- Chord_Voices_Prev --
+   ------------------------
+
+   procedure Chord_Voices_Prev (T : Tracks) is
+   begin
+      Prev (G_Project.Tracks (T).Chord_Voices);
+      Synchronize_Synth_Setting (T, Chord_Voice_Count_Setting);
+   end Chord_Voices_Prev;
 
    ---------------------
    -- LFO_Toggle_Loop --

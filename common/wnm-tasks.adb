@@ -46,7 +46,16 @@ package body WNM.Tasks is
    Systick_Count : UInt32 := 0;
    UI_Period_Miliseconds  : constant := 20;
    LED_Period_Miliseconds : constant := 30;
-   HP_Detect_Period_Miliseconds : constant := 250;
+   HP_Detect_Period_Miliseconds : constant := 1000;
+   --  Was 250. Each check is an I2C read of the IO expander, which shares a
+   --  bus with the codec, and each transaction puts a faint tick into the
+   --  analog output. Audible against a quiet steady tone: at 250 ms it
+   --  ticks about four times a second, at 1000 ms it stops, and going back
+   --  to 250 brings it straight back. Not a data fault, the samples
+   --  reaching the DAC are bit-exact either way, so it couples in
+   --  electrically. Once a second still notices a jack well before anyone
+   --  minds. Driving detection off the expander's interrupt line instead of
+   --  polling would remove it completely.
    Rand_Update_Period : Rand_Percent := 0;
 
    --------------------

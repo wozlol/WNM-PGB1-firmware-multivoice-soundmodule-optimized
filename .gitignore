@@ -29,3 +29,4 @@ _autosave-*
 
 # Local firmware build output (.uf2/.elf), not tracked in git
 builds/
+.DS_Store

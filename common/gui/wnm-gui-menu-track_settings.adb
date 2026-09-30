@@ -126,17 +126,16 @@ package body WNM.GUI.Menu.Track_Settings is
    is
       Result : Sub_Settings := S;
    begin
-      while Result /= Sub_Settings'Last loop
-         Result := Sub_Settings'Succ (Result);
+      loop
+         Result := (if Result = Sub_Settings'Last
+                    then Sub_Settings'First
+                    else Sub_Settings'Succ (Result));
+         exit when Result = S;
          if Valid_Setting (M, Result) then
             S := Result;
             return;
          end if;
       end loop;
-
-      if Valid_Setting (M, Result) then
-         S := Result;
-      end if;
    end Next_Valid_Setting;
 
    ------------------------
@@ -148,17 +147,16 @@ package body WNM.GUI.Menu.Track_Settings is
    is
       Result : Sub_Settings := S;
    begin
-      while Result /= Sub_Settings'First loop
-         Result := Sub_Settings'Pred (Result);
+      loop
+         Result := (if Result = Sub_Settings'First
+                    then Sub_Settings'Last
+                    else Sub_Settings'Pred (Result));
+         exit when Result = S;
          if Valid_Setting (M, Result) then
             S := Result;
             return;
          end if;
       end loop;
-
-      if Valid_Setting (M, Result) then
-         S := Result;
-      end if;
    end Prev_Valid_Setting;
 
    --------------
@@ -293,16 +291,7 @@ package body WNM.GUI.Menu.Track_Settings is
             end;
 
          when Arp_Mode =>
-            if Project.Mode (T) = Project.Chord_Mode then
-               --  Retrig doesn't apply to Chord, which has its own
-               --  independent polyphony, so don't show it there.
-               Draw_Title ("Arpeggiator mode:", "");
-            else
-               Draw_Title ("Arp mode, Retrig " &
-                             (if Project.Retrig_Enabled (T)
-                              then "On" else "Off"),
-                           "");
-            end if;
+            Draw_Title ("Arpeggiator mode:", "");
             Draw_Value (Project.Img (Project.Arp_Mode (T)));
 
          when Arp_Notes =>
@@ -310,10 +299,21 @@ package body WNM.GUI.Menu.Track_Settings is
             Draw_Value (Project.Img (Project.Arp_Notes (T)));
 
          when Notes_Per_Chord =>
-            Draw_Title ("Chord Mode: " &
-                          Project.Img (Project.Chord_Voicing (T)),
-                        "");
-            Draw_Value (Project.Notes_Per_Chord (T)'Img);
+            if Project.Mode (T) = Project.Chord_Mode then
+               Draw_Title ("Chord Mode:",
+                           Project.Img (Project.Chord_Voicing (T)));
+               if Project.Chord_Voicing (T) = Project.Direct_Poly then
+                  Draw_Value ("Voices" &
+                                Project.Chord_Voice_Count'Image
+                                  (Project.Chord_Voices (T)));
+               else
+                  Draw_Value (Project.Notes_Per_Chord (T)'Img);
+               end if;
+            else
+               Draw_Title ("Last Note", "Retrigger");
+               Draw_Value (if Project.Retrig_Enabled (T)
+                          then "On" else "Off");
+            end if;
 
          when MIDI_Chan =>
             Draw_Title ("MIDI Channel:", "");
@@ -545,10 +545,9 @@ package body WNM.GUI.Menu.Track_Settings is
                   Project.LFO_Toggle_Loop (T);
 
                when Notes_Per_Chord =>
-                  Project.Chord_Voicing_Next (T);
-
-               when Arp_Mode =>
-                  if Project.Mode (T) /= Project.Chord_Mode then
+                  if Project.Mode (T) = Project.Chord_Mode then
+                     Project.Chord_Voicing_Next (T);
+                  else
                      Project.Retrig_Toggle (T);
                   end if;
 
@@ -563,7 +562,9 @@ package body WNM.GUI.Menu.Track_Settings is
                   Project.LFO_Amp_Mode_Prev (T);
 
                when Notes_Per_Chord =>
-                  Project.Chord_Voicing_Prev (T);
+                  if Project.Mode (T) = Project.Chord_Mode then
+                     Project.Chord_Voicing_Prev (T);
+                  end if;
 
                when others =>
                   null;
