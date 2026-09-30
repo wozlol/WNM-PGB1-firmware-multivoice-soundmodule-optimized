@@ -40,11 +40,16 @@ do not run correctly on the hardware.
 
 **Pitch bend**
 
-- **Pitch bend works live, on every pitched voice.** Kick, Snare, Bass, Lead,
-  Chord and both samplers, while a note is held and at the moment of the
-  strike. Stock firmware decoded only the low half of the bend value and then
-  dropped the message before it reached the synth, so the wheel did nothing at
-  all.
+- **Pitch bend works live, on every pitched voice.** Kick, Snare, Hi-hat,
+  Bass, Lead, Chord and both samplers, while a note is held and at the moment
+  of the strike. Stock firmware decoded only the low half of the bend value
+  and then dropped the message before it reached the synth, so the wheel did
+  nothing at all.
+- **Hi-hats are pitched and bendable.** All eight hat samples across all three
+  filter variants. They are sample playback rather than an oscillator, so the
+  read position became a frame index with 8 fractional bits, stepped by a rate
+  taken from the pitch. C4 is the sample's own rate, matching the samplers, so
+  a default hat pattern sounds exactly as before.
 - **Range is switchable**, two semitones or one octave.
 - **Resolution is switchable.** High follows the wheel exactly, Low quantizes
   to 1/8 semitone steps and costs less.
@@ -106,9 +111,6 @@ do not run correctly on the hardware.
 
 ## Known limitations
 
-- Hi-hats do not follow pitch bend. They are sample playback stepped one frame
-  at a time rather than an oscillator, so pitching them needs a fractional read
-  rate.
 - Chord is capped at 5 voices. Each voice carries its own envelope for
   click-free release, and 5 is what fits in RAM alongside everything else.
 - Chord's Glide knob does nothing. An earlier implementation caused artifacts

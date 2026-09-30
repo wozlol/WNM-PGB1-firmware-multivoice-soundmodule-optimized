@@ -1,0 +1,231 @@
+diff --git a/src/tresses-drums-generic_sample_hats.adb b/src/tresses-drums-generic_sample_hats.adb
+index 358bcf4..b6f8f26 100644
+--- a/src/tresses-drums-generic_sample_hats.adb
++++ b/src/tresses-drums-generic_sample_hats.adb
+@@ -12,6 +12,7 @@ package body Tresses.Drums.Generic_Sample_Hats is
+       Env              : in out Envelopes.AR.Instance;
+       Rng              : in out Tresses.Random.Instance;
+       Phase            : in out U32;
++      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch;
+       Do_Init          : in out Boolean;
+       Do_Strike        : in out Strike_State;
+       Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
+@@ -28,6 +29,12 @@ package body Tresses.Drums.Generic_Sample_Hats is
+ 
+       Org, Point_S32 : S32;
+       Idx : Natural := Buffer'First;
++
++      Step : constant U32 := DSP.Sample_Step (Pitch);
++      --  Phase below is a frame index with 8 fractional bits, so this is
++      --  how far through the sample each output sample moves.
++
++      Frame : U32;
+    begin
+       if Do_Init then
+ 
+@@ -48,11 +55,12 @@ package body Tresses.Drums.Generic_Sample_Hats is
+          when On =>
+             Do_Strike.Event := None;
+ 
+-            Phase := Open_Sample'First +
+-              Get_Word (Rng) mod
+-              (1 + DSP.Mix (U32 (0),
+-                            Max_Random_Start_Point,
+-                            Rng_Param));
++            Phase := 256 *
++              (Open_Sample'First +
++               Get_Word (Rng) mod
++               (1 + DSP.Mix (U32 (0),
++                             Max_Random_Start_Point,
++                             Rng_Param)));
+ 
+             On (Env, Do_Strike.Velocity);
+ 
+@@ -68,9 +76,10 @@ package body Tresses.Drums.Generic_Sample_Hats is
+       Set_Resonance (Filter, Rng_Param);
+ 
+       while Idx <= Buffer'Last loop
+-         if Phase in Sample'Range then
+-            Org := S32 (Sample (Phase)) * 2**8;
+-            Phase := Phase + 1;
++         Frame := Phase / 256;
++         if Frame in Sample'Range then
++            Org := S32 (Sample (Frame)) * 2**8;
++            Phase := Phase + Step;
+          else
+             Org := 0;
+          end if;
+diff --git a/src/tresses-drums-generic_sample_hats.ads b/src/tresses-drums-generic_sample_hats.ads
+index 79f1397..e3d038d 100644
+--- a/src/tresses-drums-generic_sample_hats.ads
++++ b/src/tresses-drums-generic_sample_hats.ads
+@@ -1,3 +1,4 @@
++with Tresses.DSP;
+ with Tresses.Envelopes.AR;
+ with Tresses.Filters.SVF;
+ with Tresses.Random;
+@@ -20,6 +21,9 @@ is
+       Env              : in out Envelopes.AR.Instance;
+       Rng              : in out Tresses.Random.Instance;
+       Phase            : in out U32;
++      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch;
++      --  Reads the sample at its own rate at C4, so an unpitched caller and
++      --  a default step both sound exactly as before.
+       Do_Init          : in out Boolean;
+       Do_Strike        : in out Strike_State;
+       Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
+diff --git a/src/tresses-drums-generic_sample_hats_half_rate.adb b/src/tresses-drums-generic_sample_hats_half_rate.adb
+index 228884f..50ab509 100644
+--- a/src/tresses-drums-generic_sample_hats_half_rate.adb
++++ b/src/tresses-drums-generic_sample_hats_half_rate.adb
+@@ -16,6 +16,7 @@ package body Tresses.Drums.Generic_Sample_Hats_Half_Rate is
+       Env              : in out Envelopes.AR.Instance;
+       Rng              : in out Tresses.Random.Instance;
+       Phase            : in out U32;
++      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch;
+       Do_Init          : in out Boolean;
+       Do_Strike        : in out Strike_State;
+       Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
+@@ -32,6 +33,12 @@ package body Tresses.Drums.Generic_Sample_Hats_Half_Rate is
+ 
+       Org, Point_S32 : S32;
+       Idx : Natural := Buffer'First;
++
++      Step : constant U32 := DSP.Sample_Step (Pitch);
++      --  Phase below is a frame index with 8 fractional bits, so this is
++      --  how far through the sample each output sample moves.
++
++      Frame : U32;
+    begin
+       if Do_Init then
+ 
+@@ -54,11 +61,12 @@ package body Tresses.Drums.Generic_Sample_Hats_Half_Rate is
+          when On =>
+             Do_Strike.Event := None;
+ 
+-            Phase := Open_Sample'First +
+-              Get_Word (Rng) mod
+-              (1 + DSP.Mix (U32 (0),
+-                            Max_Random_Start_Point,
+-                            Reso_Param));
++            Phase := 256 *
++              (Open_Sample'First +
++               Get_Word (Rng) mod
++               (1 + DSP.Mix (U32 (0),
++                             Max_Random_Start_Point,
++                             Reso_Param)));
+ 
+             On (Env, Do_Strike.Velocity);
+ 
+@@ -73,9 +81,10 @@ package body Tresses.Drums.Generic_Sample_Hats_Half_Rate is
+       Set_Frequency (Filter, Param_Range'Last / 4 + Cutoff_Param / 4);
+ 
+       while Idx <= Buffer'Last loop
+-         if Phase in Sample'Range then
+-            Org := S32 (Sample (Phase)) * 2**8;
+-            Phase := Phase + 1;
++         Frame := Phase / 256;
++         if Frame in Sample'Range then
++            Org := S32 (Sample (Frame)) * 2**8;
++            Phase := Phase + Step;
+          else
+             Org := 0;
+          end if;
+diff --git a/src/tresses-drums-generic_sample_hats_half_rate.ads b/src/tresses-drums-generic_sample_hats_half_rate.ads
+index 7e682fe..322ce77 100644
+--- a/src/tresses-drums-generic_sample_hats_half_rate.ads
++++ b/src/tresses-drums-generic_sample_hats_half_rate.ads
+@@ -1,3 +1,4 @@
++with Tresses.DSP;
+ with Tresses.Envelopes.AR;
+ with Tresses.Filters.SVF;
+ with Tresses.Random;
+@@ -19,6 +20,9 @@ is
+       Env              : in out Envelopes.AR.Instance;
+       Rng              : in out Tresses.Random.Instance;
+       Phase            : in out U32;
++      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch;
++      --  Reads the sample at its own rate at C4, so an unpitched caller and
++      --  a default step both sound exactly as before.
+       Do_Init          : in out Boolean;
+       Do_Strike        : in out Strike_State;
+       Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
+diff --git a/src/tresses-dsp.adb b/src/tresses-dsp.adb
+index a85441b..9fb4dd9 100644
+--- a/src/tresses-dsp.adb
++++ b/src/tresses-dsp.adb
+@@ -171,6 +171,47 @@ package body Tresses.DSP is
+       return To_S32 (To_U32 (A) and B);
+    end "and";
+ 
++   -----------------
++   -- Sample_Step --
++   -----------------
++
++   function Sample_Step (Pitch : Pitch_Range) return U32 is
++
++      Semi_Ratio : constant array (0 .. 12) of U32 :=
++        (256, 271, 287, 304, 323, 342, 362, 384, 406, 431, 456, 483, 512);
++      --  2**(N/12) in 8.8 fixed point, one octave. Anything outside this
++      --  octave is the same ratio shifted.
++
++      Max_Octaves : constant := 4;
++      --  Past this the step is either grinding through one frame at a time
++      --  or skipping most of the sample, neither of which is musical, and
++      --  clamping keeps the shifts below from running off either end.
++
++      Rel : constant Integer := Integer (Pitch) - Sample_Unity_Pitch;
++
++      --  Ada's mod is floored, so this remainder is always 0 .. 127 and the
++      --  matching division floors too, which is what negative pitches need.
++      Frac : constant Integer := Rel mod 128;
++      Semi : constant Integer :=
++        Integer'Max (-Max_Octaves * 12,
++                     Integer'Min (Max_Octaves * 12, (Rel - Frac) / 128));
++
++      Note : constant Integer := Semi mod 12;
++      Oct  : constant Integer := (Semi - Note) / 12;
++
++      Lo : constant U32 := Semi_Ratio (Note);
++      Hi : constant U32 := Semi_Ratio (Note + 1);
++
++      Ratio : constant U32 := Lo + ((Hi - Lo) * U32 (Frac)) / 128;
++   begin
++      if Oct >= 0 then
++         return Ratio * 2**Oct;
++      else
++         --  Never zero, or the read would sit on one frame forever.
++         return U32'Max (1, Ratio / 2**(-Oct));
++      end if;
++   end Sample_Step;
++
+    -----------------------------
+    -- Compute_Phase_Increment --
+    -----------------------------
+diff --git a/src/tresses-dsp.ads b/src/tresses-dsp.ads
+index e169576..cca3126 100644
+--- a/src/tresses-dsp.ads
++++ b/src/tresses-dsp.ads
+@@ -60,6 +60,22 @@ is
+    function "and" (A : S32; B : U32) return S32
+      with Inline_Always;
+ 
++   Sample_Unity_Pitch : constant := 60 * 128;
++   --  C4, the key at which a sample plays back at its own recorded rate.
++   --  Matches the samplers, so a pitched sample-playback voice agrees with
++   --  them about which note is unity.
++
++   function Sample_Step (Pitch : Pitch_Range) return U32
++     with Linker_Section => Code_Linker_Section;
++   --  How far to advance through a sample per read, as a frame count with 8
++   --  fractional bits. 256 is the sample's own rate, which is what C4 gives.
++   --  A caller that reads one frame per several output samples already plays
++   --  slower by doing that, so it wants this same value, not a scaled one.
++   --
++   --  Uses a one-octave table of semitone ratios with the octave applied as
++   --  a shift, and interpolates across the semitone for bend, so there is no
++   --  per-note table and no floating point.
++
+    function Compute_Phase_Increment (Pitch : S16) return U32
+      with Linker_Section => Code_Linker_Section;
+ 

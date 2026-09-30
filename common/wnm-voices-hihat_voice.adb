@@ -88,6 +88,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike);
 
@@ -99,6 +100,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike);
 
@@ -110,6 +112,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike);
 
@@ -121,6 +124,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike);
 
@@ -132,6 +136,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike);
 
@@ -143,6 +148,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike);
 
@@ -154,6 +160,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike);
 
@@ -165,6 +172,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike);
 
@@ -176,6 +184,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.Band_Pass);
@@ -188,6 +197,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.Band_Pass);
@@ -200,6 +210,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.Band_Pass);
@@ -212,6 +223,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.Band_Pass);
@@ -224,6 +236,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.Band_Pass);
@@ -236,6 +249,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.Band_Pass);
@@ -248,6 +262,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.Band_Pass);
@@ -260,6 +275,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.Band_Pass);
@@ -272,6 +288,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.High_Pass);
@@ -284,6 +301,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.High_Pass);
@@ -296,6 +314,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.High_Pass);
@@ -308,6 +327,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.High_Pass);
@@ -320,6 +340,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.High_Pass);
@@ -332,6 +353,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.High_Pass);
@@ -344,6 +366,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.High_Pass);
@@ -356,6 +379,7 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
+               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
                Filter_Mode => Filters.SVF.High_Pass);
