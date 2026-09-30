@@ -11,7 +11,7 @@ Upstream firmware lives at
 [wee-noise-makers/WNM-PGB1-firmware](https://github.com/wee-noise-makers/WNM-PGB1-firmware).
 This fork's changes are by Joseph Wozniak ([woz.lol](https://woz.lol)).
 
-**Building.** One fix lives in a pinned dependency, which Alire keeps in the
+**Building.** Two fixes live in pinned dependencies, which Alire keeps in the
 gitignored `device/alire/cache/`. Build once so Alire fetches the pins, run
 `./patches/apply.sh`, then build again. Always build `--release`, debug builds
 do not run correctly on the hardware.
@@ -30,6 +30,22 @@ do not run correctly on the hardware.
   Removes the inharmonic fizz that the bright waveforms produced up high:
   Sawtooth, both Pulses, Screech and Sine+Saw. Costs flash only, no RAM and no
   extra work per sample.
+
+**Bass and Lead**
+
+- **No click when a note takes the voice.** These tracks are monophonic, so a
+  new note steals whatever is sounding. The strike was never the problem, the
+  envelope ramps on from its current value and the phase is never reset, but
+  the pitch change was: a new pitch reads a different band-limited table, so
+  the waveform value jumped. The switch now happens inside a 1.5 ms raised
+  cosine fade, so there is nothing to step away from. Covers both a new note
+  taking the voice and the note-priority retrigger when you release the newer
+  key of a trill.
+- **Buzz's DET no longer leaves the level stuck when turned to zero.** Buzz
+  sums two oscillators, and at zero detune they run at the same pitch while
+  keeping whatever independent phase they drifted to, so they could partly or
+  wholly cancel and the volume stayed wherever the beat happened to stop. At
+  zero detune it now uses a single oscillator, so the level lands at full.
 
 **Chord track**
 
@@ -62,16 +78,12 @@ do not run correctly on the hardware.
 
 - Chord is capped at 5 voices. Each voice carries its own envelope for
   click-free release, and 5 is what fits in RAM alongside everything else.
-- Bass and Lead are still monophonic. Their "number of voices" setting does
-  nothing.
 - Chord's Glide knob does nothing. An earlier implementation caused artifacts
   and was removed rather than shipped broken.
 - The Chord Mode setting, Generated or Direct Poly, only affects sequenced
   steps whose Note Mode is "Chord" or "Note in Chord". It has no effect on live
   playing in either mode, which matches stock behavior for the harmonized
   chord-progression feature.
-- The custom user waveform is drawn at run time, so there is no precomputed
-  band-limited copy of it and it reads the coarse table as before.
 
 ---
 

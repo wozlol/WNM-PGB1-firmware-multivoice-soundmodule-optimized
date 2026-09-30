@@ -12,8 +12,9 @@ set -u
 
 here="$(cd "$(dirname "$0")" && pwd)"
 sdk="$here/../device/alire/cache/pins/noise_nugget_sdk"
+tresses="$here/../device/alire/cache/pins/tresses"
 
-if [ ! -d "$sdk" ]; then
+if [ ! -d "$sdk" ] || [ ! -d "$tresses" ]; then
     echo "noise_nugget_sdk pin not found. Build once first so Alire fetches"
     echo "the pins, then run this again."
     exit 1
@@ -36,5 +37,6 @@ apply () {
 }
 
 apply "$here/noise_nugget_sdk-codec-clock-from-bclk.patch" "$sdk"
+apply "$here/tresses-buzz-zero-detune-cancellation.patch" "$tresses"
 
 exit $status

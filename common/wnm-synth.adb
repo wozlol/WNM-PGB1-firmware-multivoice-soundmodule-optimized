@@ -219,6 +219,45 @@ package body WNM.Synth is
    --  a moving pan steps the signal every 256 samples, which is heard as
    --  a slow wobble with fine continuous crackle riding on it.
 
+   --  Bass and Lead are monophonic, so a new note takes the voice from
+   --  whatever was sounding. The strike itself is harmless, the envelope
+   --  ramps on from its current value and the oscillator phase is never
+   --  reset, but the pitch change is not: a new pitch reads a different
+   --  band-limited table, so the waveform value jumps. Waiting for a zero
+   --  crossing of the outgoing note does not help, because the incoming
+   --  one starts wherever its own table happens to sit. So the strike is
+   --  held here and applied during the render, inside a short fade.
+   subtype Declick_Channels is
+     MIDI.MIDI_Channel range Bass_Channel .. Lead_Channel;
+
+   type Pending_Strike is record
+      Active   : Boolean        := False;
+      Key      : MIDI.MIDI_Key  := 0;
+      Velocity : MIDI.MIDI_Data := 0;
+   end record;
+
+   Pending_Note : array (Declick_Channels) of Pending_Strike;
+
+   Declick_Samples : constant := 48;  --  1.5ms at 32kHz
+
+   Declick_Ramp : constant array (0 .. Declick_Samples - 1) of Tresses.S32 :=
+     (
+          0,    37,   146,   328,   582,   907,  1300,  1761,
+       2287,  2876,  3526,  4233,  4994,  5806,  6665,  7568,
+       8510,  9487, 10495, 11529, 12585, 13658, 14744, 15836,
+      16931, 18023, 19109, 20182, 21238, 22272, 23280, 24257,
+      25199, 26102, 26961, 27773, 28534, 29241, 29891, 30480,
+      31006, 31467, 31860, 32185, 32439, 32621, 32730, 32767);
+   --  Raised cosine, 0 to full scale in Q15. A straight line has a corner
+   --  at each end, and on a pure tone with no harmonics to hide behind that
+   --  corner is itself audible as a tick. This is smooth at both ends.
+
+   procedure Render_Declicked
+     (V      : in out Tresses.Voices.Macro.Instance;
+      Chan   :        Declick_Channels;
+      Buffer :    out WNM_HAL.Mono_Buffer;
+      Aux    :    out WNM_HAL.Mono_Buffer);
+
    LFOs       : array (Tresses_Channels) of Tresses.LFO.Instance;
    LFO_Syncs  : array (Tresses_Channels) of Boolean := (others => False);
    LFO_Values : array (Tresses_Channels) of Tresses.S16;
@@ -477,24 +516,32 @@ package body WNM.Synth is
                         declare
                            Key : constant MIDI_Key := Msg.MIDI_Evt.Key;
                         begin
-                           if Msg.MIDI_Evt.Chan = Sample1_Channel then
-                              Sampler1.Set_MIDI_Pitch (Key);
-                           elsif Msg.MIDI_Evt.Chan = Sample2_Channel then
-                              Sampler2.Set_MIDI_Pitch (Key);
-                           elsif Msg.MIDI_Evt.Chan = Chord_Channel then
-
-                              Chord.Key_On (Msg.MIDI_Evt.Key,
-                                            Tresses.MIDI_Param
-                                              (Msg.MIDI_Evt.Velocity));
-
+                           if Msg.MIDI_Evt.Chan in Declick_Channels then
+                              --  Held until the render, see Render_Declicked
+                              Pending_Note (Msg.MIDI_Evt.Chan) :=
+                                (Active   => True,
+                                 Key      => Key,
+                                 Velocity => Msg.MIDI_Evt.Velocity);
                            else
-                              Voice.Set_Pitch (Tresses.MIDI_Pitch
-                                               (Standard.MIDI.MIDI_UInt8
-                                                  (Key)));
-                           end if;
+                              if Msg.MIDI_Evt.Chan = Sample1_Channel then
+                                 Sampler1.Set_MIDI_Pitch (Key);
+                              elsif Msg.MIDI_Evt.Chan = Sample2_Channel then
+                                 Sampler2.Set_MIDI_Pitch (Key);
+                              elsif Msg.MIDI_Evt.Chan = Chord_Channel then
 
-                           Voice.Note_On (Tresses.MIDI_Param
-                                          (Msg.MIDI_Evt.Velocity));
+                                 Chord.Key_On (Msg.MIDI_Evt.Key,
+                                               Tresses.MIDI_Param
+                                                 (Msg.MIDI_Evt.Velocity));
+
+                              else
+                                 Voice.Set_Pitch (Tresses.MIDI_Pitch
+                                                  (Standard.MIDI.MIDI_UInt8
+                                                     (Key)));
+                              end if;
+
+                              Voice.Note_On (Tresses.MIDI_Param
+                                             (Msg.MIDI_Evt.Velocity));
+                           end if;
 
                            if Msg.MIDI_Evt.Chan /= Chord_Channel then
                               if Retrig_Enabled (Msg.MIDI_Evt.Chan) then
@@ -516,6 +563,20 @@ package body WNM.Synth is
                         declare
                            Key : constant MIDI_Key := Msg.MIDI_Evt.Key;
                         begin
+                           if Msg.MIDI_Evt.Chan in Declick_Channels
+                             and then Pending_Note
+                               (Msg.MIDI_Evt.Chan).Active
+                             and then Pending_Note
+                               (Msg.MIDI_Evt.Chan).Key = Key
+                           then
+                              --  Pressed and released within the same
+                              --  buffer, so it never sounded. Drop it,
+                              --  rather than let the held strike land after
+                              --  the release and leave the voice stuck on.
+                              Pending_Note (Msg.MIDI_Evt.Chan).Active :=
+                                False;
+                           end if;
+
                            if Msg.MIDI_Evt.Chan = Chord_Channel then
                               Chord.Key_Off (Msg.MIDI_Evt.Key);
 
@@ -547,12 +608,21 @@ package body WNM.Synth is
                                     --  instead of releasing the voice, so
                                     --  trills don't die on the newest
                                     --  key's release.
-                                    Voice.Set_Pitch
-                                      (Tresses.MIDI_Pitch
-                                         (Standard.MIDI.MIDI_UInt8
-                                            (Result.Key)));
-                                    Voice.Note_On
-                                      (Tresses.MIDI_Param (Result.Velocity));
+                                    if Msg.MIDI_Evt.Chan in Declick_Channels
+                                    then
+                                       Pending_Note (Msg.MIDI_Evt.Chan) :=
+                                         (Active   => True,
+                                          Key      => Result.Key,
+                                          Velocity => Result.Velocity);
+                                    else
+                                       Voice.Set_Pitch
+                                         (Tresses.MIDI_Pitch
+                                            (Standard.MIDI.MIDI_UInt8
+                                               (Result.Key)));
+                                       Voice.Note_On
+                                         (Tresses.MIDI_Param
+                                            (Result.Velocity));
+                                    end if;
                                  end case;
                               end;
                            end if;
@@ -871,12 +941,12 @@ package body WNM.Synth is
          Stop (Synth_Perf (Snare_Channel));
 
          Start (Synth_Perf (Lead_Channel));
-         Lead.Render (Buffer, Aux_Buffer);
+         Render_Declicked (Lead, Lead_Channel, Buffer, Aux_Buffer);
          Mix (Lead_Channel);
          Stop (Synth_Perf (Lead_Channel));
 
          Start (Synth_Perf (Bass_Channel));
-         Bass.Render (Buffer, Aux_Buffer);
+         Render_Declicked (Bass, Bass_Channel, Buffer, Aux_Buffer);
          Mix (Bass_Channel);
          Stop (Synth_Perf (Bass_Channel));
 
@@ -918,6 +988,50 @@ package body WNM.Synth is
    ----------------------
    -- Lead_Engine_Last --
    ----------------------
+
+   ----------------------
+   -- Render_Declicked --
+   ----------------------
+
+   procedure Render_Declicked
+     (V      : in out Tresses.Voices.Macro.Instance;
+      Chan   :        Declick_Channels;
+      Buffer :    out WNM_HAL.Mono_Buffer;
+      Aux    :    out WNM_HAL.Mono_Buffer)
+   is
+      P     : Pending_Strike renames Pending_Note (Chan);
+      Split : constant Natural := Buffer'First + Declick_Samples - 1;
+   begin
+      if not P.Active then
+         V.Render (Buffer, Aux);
+         return;
+      end if;
+
+      P.Active := False;
+
+      --  Ramp the outgoing note to silence, so the switch happens from
+      --  zero and the pitch change has nothing to step away from.
+      V.Render (Buffer (Buffer'First .. Split), Aux (Aux'First .. Split));
+      for I in Buffer'First .. Split loop
+         Buffer (I) := Tresses.S16
+           ((Tresses.S32 (Buffer (I)) * Declick_Ramp (Split - I)) / 2**15);
+      end loop;
+
+      V.Set_Pitch
+        (Tresses.MIDI_Pitch (Standard.MIDI.MIDI_UInt8 (P.Key)));
+      V.Note_On (Tresses.MIDI_Param (P.Velocity));
+
+      --  And back up, so the incoming note starts from zero too.
+      V.Render (Buffer (Split + 1 .. Buffer'Last),
+                Aux (Split + 1 .. Aux'Last));
+      for I in Split + 1 ..
+        Natural'Min (Split + Declick_Samples, Buffer'Last)
+      loop
+         Buffer (I) := Tresses.S16
+           ((Tresses.S32 (Buffer (I)) * Declick_Ramp (I - Split - 1))
+            / 2**15);
+      end loop;
+   end Render_Declicked;
 
    function Lead_Engine_Last return MIDI.MIDI_Data
    is (Lead_Engine_Range'Last);

@@ -1,0 +1,54 @@
+diff --git a/src/tresses-voices-analog_macro.adb b/src/tresses-voices-analog_macro.adb
+index f514ec6..4575df9 100644
+--- a/src/tresses-voices-analog_macro.adb
++++ b/src/tresses-voices-analog_macro.adb
+@@ -60,7 +60,8 @@ package body Tresses.Voices.Analog_Macro is
+       Env                : in out Envelopes.AR.Instance;
+       Pitch              :        Pitch_Range)
+    is
+-      Sample : S32;
++      Sample      : S32;
++      Pitch_Shift : Pitch_Range;
+    begin
+       Osc0.Set_Param (0, Param1);
+       Osc0.Set_Shape (Analog_Oscillator.Buzz);
+@@ -69,22 +70,28 @@ package body Tresses.Voices.Analog_Macro is
+       Osc1.Set_Param (0, Param1);
+       Osc1.Set_Shape (Analog_Oscillator.Buzz);
+ 
+-      declare
+-         Pitch_Shift : constant Pitch_Range :=
+-           Pitch_Range (Param2 / 2**8);
+-      begin
+-         if Pitch <= Pitch_Range'Last - Pitch_Shift then
+-            Osc1.Set_Pitch (Pitch + Pitch_Shift);
+-         else
+-            Osc1.Set_Pitch (Pitch);
+-         end if;
+-      end;
++      Pitch_Shift := Pitch_Range (Param2 / 2**8);
++
++      if Pitch <= Pitch_Range'Last - Pitch_Shift then
++         Osc1.Set_Pitch (Pitch + Pitch_Shift);
++      else
++         Osc1.Set_Pitch (Pitch);
++      end if;
+ 
+       Osc0.Render (Buffer_A);
+       Osc1.Render (Buffer_B);
+ 
+       for Idx in Buffer_A'Range loop
+-         Sample := S32 ((Buffer_A (Idx) / 2) + (Buffer_B (Idx) / 2));
++         if Pitch_Shift = 0 then
++            --  With no detune the two oscillators run at the same pitch but
++            --  keep whatever independent phase they drifted to while they
++            --  were detuned. Summing them then freezes the level wherever
++            --  the beat happened to be, anywhere from full to silent. Two
++            --  identical oscillators should just sound like one.
++            Sample := S32 (Buffer_A (Idx));
++         else
++            Sample := S32 ((Buffer_A (Idx) / 2) + (Buffer_B (Idx) / 2));
++         end if;
+ 
+          Render (Env);
+          Sample := (Sample * Low_Pass (Env)) / 2**15;
