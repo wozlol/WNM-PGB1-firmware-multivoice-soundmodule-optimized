@@ -86,12 +86,28 @@ package body WNM.Tasks is
                end case;
 
             when Note_On | Note_Off | Continous_Controller =>
-               if Msg.Chan = 0 then
-                  WNM.Project.Handle_MIDI (Msg);
-               else
-                  Coproc.Push_To_Synth ((Kind     => Coproc.MIDI_Event,
-                                         MIDI_Evt => Msg));
-               end if;
+               declare
+                  Evt : MIDI.Message := Msg;
+               begin
+                  if Msg.Kind = Note_On and then Msg.Velocity = 0 then
+                     --  A Note On with zero velocity is a Note Off, and
+                     --  most controllers send releases that way rather
+                     --  than sending a real Note Off. Taken literally it
+                     --  strikes the voice with no velocity and leaves a
+                     --  phantom held key in the note-priority bookkeeping.
+                     Evt := (Kind     => Note_Off,
+                             Chan     => Msg.Chan,
+                             Key      => Msg.Key,
+                             Velocity => 0);
+                  end if;
+
+                  if Evt.Chan = 0 then
+                     WNM.Project.Handle_MIDI (Evt);
+                  else
+                     Coproc.Push_To_Synth ((Kind     => Coproc.MIDI_Event,
+                                            MIDI_Evt => Evt));
+                  end if;
+               end;
 
             when others =>
                null;

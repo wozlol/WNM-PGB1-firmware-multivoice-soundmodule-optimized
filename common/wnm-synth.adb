@@ -238,6 +238,16 @@ package body WNM.Synth is
 
    Pending_Note : array (Declick_Channels) of Pending_Strike;
 
+   Last_Out : array (Declick_Channels) of Tresses.S16 := (others => 0);
+   --  Last sample each of these channels produced, so a strike arriving
+   --  while the voice is already effectively silent can be applied straight
+   --  away with no fade. That matters for the plucked engines, whose whole
+   --  character is the attack transient, and fading that in would be
+   --  removing the part that makes them audible.
+
+   Declick_Floor : constant := 200;
+   --  About -44dB. Below this a direct switch cannot step audibly.
+
    Declick_Samples : constant := 48;  --  1.5ms at 32kHz
 
    Declick_Ramp : constant array (0 .. Declick_Samples - 1) of Tresses.S32 :=
@@ -1004,10 +1014,22 @@ package body WNM.Synth is
    begin
       if not P.Active then
          V.Render (Buffer, Aux);
+         Last_Out (Chan) := Buffer (Buffer'Last);
          return;
       end if;
 
       P.Active := False;
+
+      if abs Integer (Last_Out (Chan)) < Declick_Floor then
+         --  Nothing meaningful sounding, so there is nothing to declick.
+         --  Strike immediately and leave the attack completely alone.
+         V.Set_Pitch
+           (Tresses.MIDI_Pitch (Standard.MIDI.MIDI_UInt8 (P.Key)));
+         V.Note_On (Tresses.MIDI_Param (P.Velocity));
+         V.Render (Buffer, Aux);
+         Last_Out (Chan) := Buffer (Buffer'Last);
+         return;
+      end if;
 
       --  Ramp the outgoing note to silence, so the switch happens from
       --  zero and the pitch change has nothing to step away from.
@@ -1031,6 +1053,8 @@ package body WNM.Synth is
            ((Tresses.S32 (Buffer (I)) * Declick_Ramp (I - Split - 1))
             / 2**15);
       end loop;
+
+      Last_Out (Chan) := Buffer (Buffer'Last);
    end Render_Declicked;
 
    function Lead_Engine_Last return MIDI.MIDI_Data
