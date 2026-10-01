@@ -2243,7 +2243,16 @@ package body WNM.Project is
    begin
       case Msg.Kind is
          when Note_On =>
-            if WNM.UI.Input_Mode = WNM.UI.Step_Mode then
+            --  Writes straight into G_Project.Steps, which in
+            --  Four_Track_Looper mode is the loop event pool's own
+            --  storage, so this path must not run in that mode.
+            --  Input_Mode can be stale Step_Mode left over from before a
+            --  mode switch (nothing resets it when Sequencer_Mode
+            --  changes), so Sequencer_Mode is checked directly here too
+            --  rather than relied on only via the Step button's own gate.
+            if WNM.UI.Input_Mode = WNM.UI.Step_Mode
+              and then Sequencer_Mode = OG_Sequencer
+            then
                declare
                   Ed_Step : Step_Rec renames G_Project.Steps
                     (Editing_Track)(Editing_Pattern)(Editing_Step);
@@ -2257,6 +2266,9 @@ package body WNM.Project is
                   end if;
                end;
             else
+               --  Either not Step_Mode, or stale Step_Mode in Looper
+               --  mode: either way the note should still sound, it just
+               --  does not get written into a step.
                Send_To_Synth;
             end if;
 
