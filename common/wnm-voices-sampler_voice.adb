@@ -270,10 +270,6 @@ package body WNM.Voices.Sampler_Voice is
    -- Set_Bend --
    --------------
 
-   Probe_Key   : Interfaces.Unsigned_32 := 0 with Volatile;  --  TEMP
-   Probe_Bend  : Interfaces.Integer_32  := 0 with Volatile;  --  TEMP
-   Probe_Bent  : Interfaces.Unsigned_32 := 0 with Volatile;  --  TEMP
-
    procedure Set_Bend (This : in out Instance; Offset : Tresses.S16) is
       use type Interfaces.Integer_16;
    begin

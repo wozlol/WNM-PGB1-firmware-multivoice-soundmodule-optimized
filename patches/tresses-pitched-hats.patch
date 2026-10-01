@@ -1,15 +1,17 @@
 diff --git a/src/tresses-drums-generic_sample_hats.adb b/src/tresses-drums-generic_sample_hats.adb
-index 358bcf4..b6f8f26 100644
+index 358bcf4..9bb8343 100644
 --- a/src/tresses-drums-generic_sample_hats.adb
 +++ b/src/tresses-drums-generic_sample_hats.adb
-@@ -12,6 +12,7 @@ package body Tresses.Drums.Generic_Sample_Hats is
-       Env              : in out Envelopes.AR.Instance;
-       Rng              : in out Tresses.Random.Instance;
+@@ -14,7 +14,8 @@ package body Tresses.Drums.Generic_Sample_Hats is
        Phase            : in out U32;
-+      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch;
        Do_Init          : in out Boolean;
        Do_Strike        : in out Strike_State;
-       Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
+-      Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
++      Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass;
++      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch)
+    is
+       Mix_Param    : Param_Range renames Params (P_Mix);
+       Cutoff_Param : Param_Range renames Params (P_Cutoff);
 @@ -28,6 +29,12 @@ package body Tresses.Drums.Generic_Sample_Hats is
  
        Org, Point_S32 : S32;
@@ -56,7 +58,7 @@ index 358bcf4..b6f8f26 100644
              Org := 0;
           end if;
 diff --git a/src/tresses-drums-generic_sample_hats.ads b/src/tresses-drums-generic_sample_hats.ads
-index 79f1397..e3d038d 100644
+index 79f1397..309f34e 100644
 --- a/src/tresses-drums-generic_sample_hats.ads
 +++ b/src/tresses-drums-generic_sample_hats.ads
 @@ -1,3 +1,4 @@
@@ -64,28 +66,33 @@ index 79f1397..e3d038d 100644
  with Tresses.Envelopes.AR;
  with Tresses.Filters.SVF;
  with Tresses.Random;
-@@ -20,6 +21,9 @@ is
-       Env              : in out Envelopes.AR.Instance;
-       Rng              : in out Tresses.Random.Instance;
+@@ -22,7 +23,11 @@ is
        Phase            : in out U32;
-+      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch;
-+      --  Reads the sample at its own rate at C4, so an unpitched caller and
-+      --  a default step both sound exactly as before.
        Do_Init          : in out Boolean;
        Do_Strike        : in out Strike_State;
-       Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
+-      Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
++      Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass;
++      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch)
++      --  Pitch reads the sample at its own rate at C4, so a caller that
++      --  leaves it out sounds exactly as before. Last in the list, and
++      --  defaulted, so it cannot disturb a positional caller.
+      with Linker_Section => Code_Linker_Section;
+ 
+    P_Mix        : constant Param_Id := 1;
 diff --git a/src/tresses-drums-generic_sample_hats_half_rate.adb b/src/tresses-drums-generic_sample_hats_half_rate.adb
-index 228884f..50ab509 100644
+index 228884f..4c4de2d 100644
 --- a/src/tresses-drums-generic_sample_hats_half_rate.adb
 +++ b/src/tresses-drums-generic_sample_hats_half_rate.adb
-@@ -16,6 +16,7 @@ package body Tresses.Drums.Generic_Sample_Hats_Half_Rate is
-       Env              : in out Envelopes.AR.Instance;
-       Rng              : in out Tresses.Random.Instance;
+@@ -18,7 +18,8 @@ package body Tresses.Drums.Generic_Sample_Hats_Half_Rate is
        Phase            : in out U32;
-+      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch;
        Do_Init          : in out Boolean;
        Do_Strike        : in out Strike_State;
-       Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
+-      Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
++      Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass;
++      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch)
+    is
+       Mix_Param  : Param_Range renames Params (P_Mix);
+       Cutoff_Param : Param_Range renames Params (P_Cutoff);
 @@ -32,6 +33,12 @@ package body Tresses.Drums.Generic_Sample_Hats_Half_Rate is
  
        Org, Point_S32 : S32;
@@ -132,7 +139,7 @@ index 228884f..50ab509 100644
              Org := 0;
           end if;
 diff --git a/src/tresses-drums-generic_sample_hats_half_rate.ads b/src/tresses-drums-generic_sample_hats_half_rate.ads
-index 7e682fe..322ce77 100644
+index 7e682fe..be9fad4 100644
 --- a/src/tresses-drums-generic_sample_hats_half_rate.ads
 +++ b/src/tresses-drums-generic_sample_hats_half_rate.ads
 @@ -1,3 +1,4 @@
@@ -140,16 +147,19 @@ index 7e682fe..322ce77 100644
  with Tresses.Envelopes.AR;
  with Tresses.Filters.SVF;
  with Tresses.Random;
-@@ -19,6 +20,9 @@ is
-       Env              : in out Envelopes.AR.Instance;
-       Rng              : in out Tresses.Random.Instance;
+@@ -21,7 +22,11 @@ is
        Phase            : in out U32;
-+      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch;
-+      --  Reads the sample at its own rate at C4, so an unpitched caller and
-+      --  a default step both sound exactly as before.
        Do_Init          : in out Boolean;
        Do_Strike        : in out Strike_State;
-       Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
+-      Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass)
++      Filter_Mode      :        Filters.SVF.Mode_Kind := Filters.SVF.Low_Pass;
++      Pitch            :        Pitch_Range := DSP.Sample_Unity_Pitch)
++      --  Pitch reads the sample at its own rate at C4, so a caller that
++      --  leaves it out sounds exactly as before. Last in the list, and
++      --  defaulted, so it cannot disturb a positional caller.
+      with Linker_Section => Code_Linker_Section;
+ 
+    P_Mix        : constant Param_Id := 1;
 diff --git a/src/tresses-dsp.adb b/src/tresses-dsp.adb
 index a85441b..9fb4dd9 100644
 --- a/src/tresses-dsp.adb

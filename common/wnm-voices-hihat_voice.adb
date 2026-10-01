@@ -88,9 +88,9 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
-               Do_Strike => This.Do_Strike);
+               Do_Strike => This.Do_Strike,
+               Pitch => This.Pitch);
 
          when HH707 =>
             Drums.HH_707_Sampled.Render
@@ -100,9 +100,9 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
-               Do_Strike => This.Do_Strike);
+               Do_Strike => This.Do_Strike,
+               Pitch => This.Pitch);
 
          when HH808 =>
             Drums.HH_808_Sampled.Render
@@ -112,9 +112,9 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
-               Do_Strike => This.Do_Strike);
+               Do_Strike => This.Do_Strike,
+               Pitch => This.Pitch);
 
          when HH505 =>
             Drums.HH_505_Sampled.Render
@@ -124,9 +124,9 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
-               Do_Strike => This.Do_Strike);
+               Do_Strike => This.Do_Strike,
+               Pitch => This.Pitch);
 
          when HHLM2 =>
             Drums.HH_LM2_Sampled.Render
@@ -136,9 +136,9 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
-               Do_Strike => This.Do_Strike);
+               Do_Strike => This.Do_Strike,
+               Pitch => This.Pitch);
 
          when HHMRK2 =>
             Drums.HH_MRK2_Sampled.Render
@@ -148,9 +148,9 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
-               Do_Strike => This.Do_Strike);
+               Do_Strike => This.Do_Strike,
+               Pitch => This.Pitch);
 
          when HHCR78 =>
             Drums.HH_CR78_Sampled.Render
@@ -160,9 +160,9 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
-               Do_Strike => This.Do_Strike);
+               Do_Strike => This.Do_Strike,
+               Pitch => This.Pitch);
 
          when HH_Acoustic =>
             Drums.HH_Acoustic_Sampled.Render
@@ -172,9 +172,9 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
-               Do_Strike => This.Do_Strike);
+               Do_Strike => This.Do_Strike,
+               Pitch => This.Pitch);
 
          when HH909_BP =>
             Drums.HH_909_Sampled.Render
@@ -184,10 +184,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.Band_Pass);
+               Filter_Mode => Filters.SVF.Band_Pass,
+               Pitch => This.Pitch);
 
          when HH707_BP =>
             Drums.HH_707_Sampled.Render
@@ -197,10 +197,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.Band_Pass);
+               Filter_Mode => Filters.SVF.Band_Pass,
+               Pitch => This.Pitch);
 
          when HH808_BP =>
             Drums.HH_808_Sampled.Render
@@ -210,10 +210,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.Band_Pass);
+               Filter_Mode => Filters.SVF.Band_Pass,
+               Pitch => This.Pitch);
 
          when HH505_BP =>
             Drums.HH_505_Sampled.Render
@@ -223,10 +223,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.Band_Pass);
+               Filter_Mode => Filters.SVF.Band_Pass,
+               Pitch => This.Pitch);
 
          when HHLM2_BP =>
             Drums.HH_LM2_Sampled.Render
@@ -236,10 +236,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.Band_Pass);
+               Filter_Mode => Filters.SVF.Band_Pass,
+               Pitch => This.Pitch);
 
          when HHMRK2_BP =>
             Drums.HH_MRK2_Sampled.Render
@@ -249,10 +249,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.Band_Pass);
+               Filter_Mode => Filters.SVF.Band_Pass,
+               Pitch => This.Pitch);
 
          when HHCR78_BP =>
             Drums.HH_CR78_Sampled.Render
@@ -262,10 +262,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.Band_Pass);
+               Filter_Mode => Filters.SVF.Band_Pass,
+               Pitch => This.Pitch);
 
          when HH_Acoustic_BP =>
             Drums.HH_Acoustic_Sampled.Render
@@ -275,10 +275,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.Band_Pass);
+               Filter_Mode => Filters.SVF.Band_Pass,
+               Pitch => This.Pitch);
 
          when HH909_HP =>
             Drums.HH_909_Sampled.Render
@@ -288,10 +288,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.High_Pass);
+               Filter_Mode => Filters.SVF.High_Pass,
+               Pitch => This.Pitch);
 
          when HH707_HP =>
             Drums.HH_707_Sampled.Render
@@ -301,10 +301,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.High_Pass);
+               Filter_Mode => Filters.SVF.High_Pass,
+               Pitch => This.Pitch);
 
          when HH808_HP =>
             Drums.HH_808_Sampled.Render
@@ -314,10 +314,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.High_Pass);
+               Filter_Mode => Filters.SVF.High_Pass,
+               Pitch => This.Pitch);
 
          when HH505_HP =>
             Drums.HH_505_Sampled.Render
@@ -327,10 +327,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.High_Pass);
+               Filter_Mode => Filters.SVF.High_Pass,
+               Pitch => This.Pitch);
 
          when HHLM2_HP =>
             Drums.HH_LM2_Sampled.Render
@@ -340,10 +340,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.High_Pass);
+               Filter_Mode => Filters.SVF.High_Pass,
+               Pitch => This.Pitch);
 
          when HHMRK2_HP =>
             Drums.HH_MRK2_Sampled.Render
@@ -353,10 +353,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.High_Pass);
+               Filter_Mode => Filters.SVF.High_Pass,
+               Pitch => This.Pitch);
 
          when HHCR78_HP =>
             Drums.HH_CR78_Sampled.Render
@@ -366,10 +366,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.High_Pass);
+               Filter_Mode => Filters.SVF.High_Pass,
+               Pitch => This.Pitch);
 
          when HH_Acoustic_HP =>
             Drums.HH_Acoustic_Sampled.Render
@@ -379,10 +379,10 @@ package body WNM.Voices.Hihat_Voice is
                Env => This.Env0,
                Rng => This.Rng,
                Phase =>  This.Phase,
-               Pitch => This.Pitch,
                Do_Init => This.Do_Init,
                Do_Strike => This.Do_Strike,
-               Filter_Mode => Filters.SVF.High_Pass);
+               Filter_Mode => Filters.SVF.High_Pass,
+               Pitch => This.Pitch);
 
       end case;
    end Render;
