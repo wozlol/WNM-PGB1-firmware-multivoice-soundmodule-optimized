@@ -2,11 +2,18 @@
 --                                                                           --
 --                              Wee Noise Maker                              --
 --                                                                           --
---    This file is a port of the FourTrackLooper engine from the ARPnMIDI    --
---    project (arpnmidi3::FourTrackLooper, four_track_looper.cpp/.h),       --
---    treated as the reference for every timing and edge case decision      --
---    here. Keep the two in step rather than re-deriving behavior from      --
---    scratch if either one changes.                                        --
+--    The loop recorder/player in this file is a port of the FourTrackLooper --
+--    engine from the ARPnMIDI project (arpnmidi3::FourTrackLooper,          --
+--    four_track_looper.cpp/.h), treated as the reference for every timing   --
+--    and edge case decision there. Keep the two in step rather than         --
+--    re-deriving behavior from scratch if either one changes.               --
+--                                                                           --
+--    The LiveArp engine further down is not from that reference, it is a   --
+--    plain arpeggiator. It lives in this same file because its state has   --
+--    to live in the same Steps overlay WNM.Looper's own state does (see    --
+--    the RAM section of LOOPER_MODE_PLAN.md): there was no room for a      --
+--    second, separately addressed overlay without a real risk of the two   --
+--    overlapping, so it is a second section of the one overlay instead.    --
 --                                                                           --
 -------------------------------------------------------------------------------
 
@@ -218,6 +225,114 @@ package WNM.Looper is
    --  than a plain variable so this, like everything else in this package,
    --  can live in the Steps overlay instead of adding to the permanent RAM
    --  bill outside Looper mode.
+
+   ------------------------------------------------------------------------
+   --  LiveArp
+   --
+   --  A plain arpeggiator, one independent instance per MIDI channel.
+   --  Not everything in the spec this was built from yet, by design, see
+   --  LOOPER_MODE_PLAN.md: no channel 10 sidecar division, no hold-current-
+   --  division-and-tap-another ratchet recorded into the loop, and no
+   --  button wiring yet (Set_Style/Set_Division/etc exist to be driven by
+   --  UI code that does not exist yet).
+   ------------------------------------------------------------------------
+
+   subtype Arp_Channel is MIDI.MIDI_Channel range 1 .. 8;
+   --  Matches WNM.Synth's Kick_Channel .. Sample2_Channel, not named from
+   --  there directly so this engine does not need to depend on WNM.Synth
+   --  for a type alone. The spec says the Chord track never arps; that is
+   --  enforced by callers simply never arming Chord_Channel's style, not
+   --  by anything inside this engine refusing it.
+
+   type Arp_Style_Kind is (Arp_Off,
+                           Arp_Chord,
+                           Arp_Up,
+                           Arp_Down,
+                           Arp_Up_Down_Exclusive,
+                           Arp_Up_Down_Inclusive,
+                           Arp_Random);
+   --  Arp_Chord: every held note together, retriggered each step, not
+   --  actually arpeggiated note by note (the spec calls this style
+   --  "trigger/chord").
+   --  Arp_Up_Down_Exclusive: ping-pongs without repeating the top or
+   --  bottom note (for notes C E G: C E G E C E G E ...).
+   --  Arp_Up_Down_Inclusive: ping-pongs repeating both ends
+   --  (C E G G E C C E G G ...).
+
+   function Img (S : Arp_Style_Kind) return String
+   is (case S is
+          when Arp_Off               => "Off",
+          when Arp_Chord             => "Chord",
+          when Arp_Up                => "Up",
+          when Arp_Down              => "Down",
+          when Arp_Up_Down_Exclusive => "Up/Down 1",
+          when Arp_Up_Down_Inclusive => "Up/Down 2",
+          when Arp_Random            => "Random");
+
+   type Arp_Division_Kind is (D_1_4, D_1_2T, D_1_8, D_1_4T,
+                              D_1_16, D_1_8T, D_1_32, D_1_64);
+   --  "T" divisions are the triplet of the one before them (2/3 the
+   --  straight duration: 3 of them fill the time 2 straight ones would),
+   --  matching the spec's listed order.
+
+   function Img (D : Arp_Division_Kind) return String
+   is (case D is
+          when D_1_4  => "1/4",
+          when D_1_2T => "1/2t",
+          when D_1_8  => "1/8",
+          when D_1_4T => "1/4t",
+          when D_1_16 => "1/16",
+          when D_1_8T => "1/8t",
+          when D_1_32 => "1/32",
+          when D_1_64 => "1/64");
+
+   function Division_Us (D : Arp_Division_Kind; Beat_Us : UInt32)
+                         return UInt32;
+   --  Beat_Us is one quarter note (what the rest of this firmware already
+   --  calls Microseconds_Per_Beat).
+
+   function Arp_Style (Channel : Arp_Channel) return Arp_Style_Kind;
+   procedure Set_Arp_Style (Channel : Arp_Channel; S : Arp_Style_Kind);
+
+   function Arp_Division (Channel : Arp_Channel) return Arp_Division_Kind;
+   procedure Set_Arp_Division (Channel : Arp_Channel; D : Arp_Division_Kind);
+
+   function Arp_Octave_Down (Channel : Arp_Channel) return Boolean;
+   function Arp_Octave_Up (Channel : Arp_Channel) return Boolean;
+   procedure Set_Arp_Octave_Down (Channel : Arp_Channel; On : Boolean);
+   procedure Set_Arp_Octave_Up (Channel : Arp_Channel; On : Boolean);
+   --  Each adds a second note sounding together with whatever the style
+   --  would already be sounding, one octave down or up (clamped to the
+   --  MIDI note range rather than wrapping).
+
+   procedure Arp_Note_On (Channel  : Arp_Channel;
+                          Key      : MIDI.MIDI_Key;
+                          Velocity : MIDI.MIDI_Data);
+   procedure Arp_Note_Off (Channel : Arp_Channel; Key : MIDI.MIDI_Key);
+   --  Feeds the held-note set the stepper below walks. Whether a given
+   --  Note_On/Off even reaches here instead of going straight to the
+   --  synth is the caller's decision (Arp_Style (Channel) /= Arp_Off),
+   --  not this engine's: it has no opinion on anything but the channels
+   --  that are actually armed.
+
+   procedure Arp_Reset (Channel : Arp_Channel);
+   --  Drops all held notes and silences the channel without sending the
+   --  note-offs itself (the caller, which still knows what was last
+   --  emitted, is responsible for that). Used when a style or channel
+   --  selection changes out from under held notes.
+
+   type Arp_Emit_Proc is access procedure (Channel  : Arp_Channel;
+                                           Key      : MIDI.MIDI_Key;
+                                           Velocity : MIDI.MIDI_Data;
+                                           Note_On  : Boolean);
+
+   procedure Arp_Tick (Now_Us : UInt64; Beat_Us : UInt32;
+                       Emit   : Arp_Emit_Proc);
+   --  Steps every channel whose style is not Arp_Off and whose division
+   --  interval has elapsed since its last step: stops whatever that
+   --  channel was sounding and starts the next note per its style. A
+   --  channel with no held notes is silently skipped (nothing to step
+   --  through), so this is safe to call unconditionally every tick.
 
 private
 

@@ -33,6 +33,7 @@ with WNM.Voices.Auto_Filter_FX;
 with WNM.Voices.Stutter_FX;
 with WNM.Mixer;
 with WNM.Looper;
+with WNM.Synth;
 
 with HAL; use HAL;
 
@@ -337,15 +338,60 @@ package body WNM.UI is
 
                when Step_Button =>
                   if Evt = On_Release then
-                     if Select_Done
-                       or else Project.Sequencer_Mode /= Project.OG_Sequencer
+                     if Project.Sequencer_Mode = Project.Four_Track_Looper
                      then
-                        --  Go back a main mode. Also taken in
-                        --  Four_Track_Looper mode: Step_Menu reads Steps
-                        --  directly, which in that mode is the loop event
-                        --  pool's own storage, and the Looper's own Step
-                        --  button behavior (LiveArp) is a later phase
-                        --  (LOOPER_MODE_PLAN.md P5), not built yet.
+                        --  Step_Menu reads Steps directly, which in this
+                        --  mode is the loop event pool's own storage, so
+                        --  it cannot open here. The real LiveArp control
+                        --  surface from the spec (the 16-button grid,
+                        --  divisions, channel 10 sidecar, ratchet
+                        --  recording) is a later phase
+                        --  (LOOPER_MODE_PLAN.md P5), not built yet. As a
+                        --  placeholder that is at least testable tonight:
+                        --  cycle the selected track's arp style. Chord
+                        --  never arps per the spec, so its track is left
+                        --  alone here even though WNM.Looper would just
+                        --  ignore a style set on it anyway (Send_To_Synth
+                        --  excludes Chord_Channel outright).
+                        if Project.Editing_Track in
+                          Tracks (WNM.Looper.Arp_Channel'First) ..
+                            Tracks (WNM.Looper.Arp_Channel'Last)
+                        then
+                           declare
+                              use type WNM.Looper.Arp_Style_Kind;
+                              use type MIDI.MIDI_Channel;
+                              Channel : constant WNM.Looper.Arp_Channel :=
+                                WNM.Looper.Arp_Channel
+                                  (MIDI.MIDI_Channel (Project.Editing_Track));
+                           begin
+                              if Channel /= WNM.Synth.Chord_Channel then
+                                 declare
+                                    Current : constant
+                                      WNM.Looper.Arp_Style_Kind :=
+                                        WNM.Looper.Arp_Style (Channel);
+                                 begin
+                                    WNM.Looper.Set_Arp_Style
+                                      (Channel,
+                                       (if Current =
+                                          WNM.Looper.Arp_Style_Kind'Last
+                                        then WNM.Looper.Arp_Style_Kind'First
+                                        else WNM.Looper.Arp_Style_Kind'Succ
+                                          (Current)));
+                                 end;
+                              end if;
+                           end;
+                        end if;
+
+                        --  Same as the Select_Done branch below: a tap
+                        --  of Step either picks a step index or, as here,
+                        --  does this mode's own thing, and either way the
+                        --  second press returns to whatever was showing
+                        --  before, it never opens a sub-screen in this
+                        --  mode.
+                        Current_Input_Mode := Last_Main_Mode;
+
+                     elsif Select_Done then
+                        --  Go back a main mode
                         Current_Input_Mode := Last_Main_Mode;
 
                      else

@@ -269,8 +269,67 @@ mode, a cosmetic gap for P6 rather than a safety one.
       - Nothing captures at reduced CC/pitch-bend resolution yet (full
         resolution for now, a correctness-safe default, just not the
         final design).
-- [ ] P5: LiveArp engine (styles, octave range, per-channel division,
-      channel 10 sidecar, hold-to-ratchet recording).
+- [~] P5: LiveArp engine core is real and wired, a deliberately smaller
+      slice than the full spec (the rest is listed honestly below):
+      - Lives in `wnm-looper.ads/.adb`, in the same file as the loop
+        engine (not the reference engine, see the file's header comment
+        for why: its state has to share the same Steps overlay, and a
+        second, separately offset overlay was judged too easy to get
+        subtly wrong without a device to test it on).
+      - 7 styles (`Arp_Style_Kind`): Off, Chord (every held note together,
+        retriggered each step, the spec's "trigger/chord"), Up, Down,
+        Up/Down excluding repeated endpoints, Up/Down including them,
+        Random (a plain LCG, not cryptographic, just enough to not repeat
+        obviously over a few bars).
+      - 8 divisions (`Arp_Division_Kind`) matching the spec's named list
+        exactly, "T" ones computed as 2/3 the straight duration before
+        them (`Division_Us`).
+      - Octave-down/up toggles add a second note sounding together with
+        whatever the style is already sounding, one octave away, clamped
+        to the MIDI range rather than wrapping.
+      - One independent instance per channel 1-8 (`Arp_Channel`), 6 notes
+        of held-note capacity each (smaller than the loop engine's own 16,
+        deliberately, to fit inside the overlay's remaining room).
+      - `Arp_Tick`, driven from the same `MIDI_Clock_Tick_Dispatch` the
+        loop player's own `Tick` already is (confirmed with you: shared
+        clock, both modes use it), steps each channel whose division
+        interval has elapsed, stopping whatever it was last sounding
+        first.
+      - Wired into `Send_To_Synth`: a Note On/Off on a channel with a
+        style armed is captured into the held-note set instead of going
+        straight to the synth, computed *after* the live channel rewrite
+        (an earlier version of this checked the channel before the
+        rewrite and so always tested the wrong one, caught before commit).
+        Chord_Channel is excluded outright regardless of its own style
+        setting, matching the spec's "Chord never arps".
+      - The loop recording still captures the raw Note On/Off, not the
+        arp's generated stream, so a loop plays back pre-arp and changing
+        the arp setting later changes how a held note already in a loop
+        plays: "the looper saves notes pre-livearp" per the spec. This
+        falls out for free from where Capture already sits in
+        Send_To_Synth, relative to where the new arp branch sits.
+      - Interim testability, not the real UI: there is no button-matrix
+        wiring from the spec yet (the 16-button grid, divisions, channel
+        10, ratchet recording are all still P5 work below), so for
+        tonight, tapping Step twice while in Looper mode cycles the
+        selected track's arp style through all 7 in order. Clearly a
+        placeholder, not the final interaction.
+      Compiles clean, RAM unchanged (258044, the overlay grew by about
+      300 bytes for this, 1036 of its original ~1336-byte slack remain).
+      Explicitly NOT built, from the spec, left for later:
+      - The 16-button grid itself (styles 1-6 with same-press-off,
+        octave buttons 7-8, divisions 9-16), and everything about holding
+        Step for the stutter/dub-delay surface instead.
+      - Channel 10's independent sidecar division and all of its special
+        notes 36-50.
+      - Hold-current-division-then-tap-another temporary ratchet,
+        recorded into the loop as real data on channels 2,3,4,8,9,10 only.
+      - Immediate note-off the instant the last held note on a channel is
+        released (right now the last sounded note keeps ringing until the
+        next division tick catches up to an empty held set, which could
+        be a noticeable, musically wrong delay at slow divisions).
+      - Persisting per-channel style/division/octave settings with the
+        project (P10's Looper_Section does not touch these yet).
 - [ ] P6: Play/Edit/Song/Pattern/Copy button remap for Looper mode.
 - [ ] P7: Stutter (rolling-history based, arpnmidi gospel) and dub delay
       (echo-engine based) sidecars under a held Step button.

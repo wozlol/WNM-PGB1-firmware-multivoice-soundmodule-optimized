@@ -2211,6 +2211,33 @@ package body WNM.Project is
       WNM.Looper.Collect_Held_Notes (Track, Looper_Send_Note_Off'Access);
    end Looper_Release;
 
+   --------------
+   -- Arp_Emit --
+   --------------
+
+   procedure Arp_Emit (Channel  : WNM.Looper.Arp_Channel;
+                       Key      : MIDI.MIDI_Key;
+                       Velocity : MIDI.MIDI_Data;
+                       Note_On  : Boolean)
+   is
+   begin
+      --  Goes straight to the synth, not through Capture: the looper
+      --  already holds the actual notes played, from Send_To_Synth, not
+      --  whatever the arp generates from them ("the looper saves notes
+      --  pre-livearp" per the spec).
+      if Note_On then
+         WNM.Coproc.Push_To_Synth
+           ((Kind     => WNM.Coproc.MIDI_Event,
+            MIDI_Evt => (Kind => MIDI.Note_On, Chan => Channel,
+                        Key => Key, Velocity => Velocity)));
+      else
+         WNM.Coproc.Push_To_Synth
+           ((Kind     => WNM.Coproc.MIDI_Event,
+            MIDI_Evt => (Kind => MIDI.Note_Off, Chan => Channel,
+                        Key => Key, Velocity => Velocity)));
+      end if;
+   end Arp_Emit;
+
    ------------------------------
    -- MIDI_Clock_Tick_Dispatch --
    ------------------------------
@@ -2225,6 +2252,9 @@ package body WNM.Project is
             WNM.Looper.Tick (WNM.Time.Clock,
                              Looper_Emit'Access,
                              Looper_Release'Access);
+            WNM.Looper.Arp_Tick (WNM.Time.Clock,
+                                 HAL.UInt32 (Microseconds_Per_Beat),
+                                 Arp_Emit'Access);
       end case;
    end MIDI_Clock_Tick_Dispatch;
 
@@ -2314,6 +2344,7 @@ package body WNM.Project is
       use MIDI;
       use WNM.UI;
       use WNM.Coproc;
+      use type WNM.Looper.Arp_Style_Kind;
 
       -------------------
       -- Send_To_Synth --
@@ -2330,16 +2361,48 @@ package body WNM.Project is
             New_Msg.Chan := MIDI_Chan (Editing_Track);
          end case;
 
-         WNM.Coproc.Push_To_Synth ((Kind => MIDI_Event,
-                                    MIDI_Evt => New_Msg));
+         --  LiveArp only ever applies in Looper mode, only to Note On/Off
+         --  (a CC or Pitch Bend always goes straight through), never to
+         --  the Chord track (the spec is explicit that Chord always plays
+         --  held notes as an ordinary poly chord), and only once a style
+         --  has actually been armed for this channel. Arp_Style defaults
+         --  to Arp_Off and nothing sets it to anything else yet (no
+         --  button wiring, LOOPER_MODE_PLAN.md P5), so this is dormant
+         --  until that exists. Computed after the channel rewrite above,
+         --  not before: an earlier version of this checked New_Msg.Chan
+         --  before the rewrite and so always tested the wrong channel.
+         declare
+            Via_Arp : constant Boolean :=
+              Sequencer_Mode = Four_Track_Looper
+                and then New_Msg.Chan in WNM.Looper.Arp_Channel
+                and then New_Msg.Chan /= WNM.Synth.Chord_Channel
+                and then New_Msg.Kind in Note_On | Note_Off
+                and then WNM.Looper.Arp_Style (New_Msg.Chan) /=
+                  WNM.Looper.Arp_Off;
+         begin
+            if Via_Arp then
+               if New_Msg.Kind = Note_On then
+                  WNM.Looper.Arp_Note_On (New_Msg.Chan, New_Msg.Key,
+                                         New_Msg.Velocity);
+               else
+                  WNM.Looper.Arp_Note_Off (New_Msg.Chan, New_Msg.Key);
+               end if;
+            else
+               WNM.Coproc.Push_To_Synth ((Kind => MIDI_Event,
+                                          MIDI_Evt => New_Msg));
+            end if;
+         end;
 
-         --  Captured after the channel rewrite above, not the raw
-         --  incoming message, so a loop plays back on the same channel
-         --  live playing just reached, the way the OG sequencer's own
-         --  steps already do. WNM.Looper.Capture is already a no-op
-         --  whenever nothing is actually armed or recording, so this
-         --  costs nothing to call unconditionally rather than tracking
-         --  that state a second time here.
+         --  Captured after the channel rewrite above but before any arp
+         --  routing, so a loop plays back on the same channel live
+         --  playing just reached, and holds the actual notes played
+         --  rather than whatever the arp generated from them: "the looper
+         --  saves notes pre-livearp" per the spec, so that changing the
+         --  arp setting later changes how a held note already in a loop
+         --  plays back. WNM.Looper.Capture is already a no-op whenever
+         --  nothing is actually armed or recording, so this costs nothing
+         --  to call unconditionally rather than tracking that state a
+         --  second time here.
          if Sequencer_Mode = Four_Track_Looper then
             declare
                Captured : constant Boolean :=

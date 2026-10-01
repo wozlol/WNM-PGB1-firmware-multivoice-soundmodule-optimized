@@ -13,6 +13,8 @@ with WNM.Project;
 
 package body WNM.Looper is
 
+   use type MIDI.MIDI_UInt8;
+
    -----------------
    -- Event pool  --
    -----------------
@@ -134,6 +136,75 @@ package body WNM.Looper is
    --  for.
 
    ---------------------------------
+   -- LiveArp's own state         --
+   ---------------------------------
+
+   Arp_Max_Notes : constant := 6;
+   --  Smaller than Max_Tracked_Notes above on purpose: this is per
+   --  channel, 8 of these, inside the same overlay as everything else
+   --  here, and 6 simultaneously held notes on one channel during live
+   --  arp play is already generous.
+
+   type Arp_Note_Entry is record
+      Key      : MIDI.MIDI_Key  := 0;
+      Velocity : MIDI.MIDI_Data := 0;
+      Used     : Boolean        := False;
+   end record
+     with Pack;
+   type Arp_Note_Table is array (1 .. Arp_Max_Notes) of Arp_Note_Entry;
+
+   procedure Arp_Table_Set (Table : in out Arp_Note_Table;
+                           Key   :        MIDI.MIDI_Key;
+                           Velocity : MIDI.MIDI_Data)
+   is
+   begin
+      for E of Table loop
+         if E.Used and then E.Key = Key then
+            E.Velocity := Velocity;
+            return;
+         end if;
+      end loop;
+      for E of Table loop
+         if not E.Used then
+            E := (Key => Key, Velocity => Velocity, Used => True);
+            return;
+         end if;
+      end loop;
+      --  Table full: this note is not tracked. See Arp_Max_Notes.
+   end Arp_Table_Set;
+
+   procedure Arp_Table_Clear (Table : in out Arp_Note_Table;
+                             Key   :        MIDI.MIDI_Key)
+   is
+   begin
+      for E of Table loop
+         if E.Used and then E.Key = Key then
+            E.Used := False;
+            return;
+         end if;
+      end loop;
+   end Arp_Table_Clear;
+
+   type Arp_Channel_State is record
+      Style        : Arp_Style_Kind    := Arp_Off;
+      Division     : Arp_Division_Kind := D_1_16;
+      Octave_Down  : Boolean           := False;
+      Octave_Up    : Boolean           := False;
+      Held         : Arp_Note_Table    := (others => <>);
+      Sounding     : Arp_Note_Table    := (others => <>);
+      --  What this channel is sounding as of the last step, so the next
+      --  step knows what to turn off before turning the next thing on.
+      Step_Index   : Natural           := 0;
+      Last_Step_Us : UInt64            := 0;
+      Has_Stepped  : Boolean           := False;
+      --  False until this channel's first step, so that first step
+      --  happens immediately rather than waiting a full division.
+   end record
+     with Pack;
+
+   type Arp_Channel_Array is array (Arp_Channel) of Arp_Channel_State;
+
+   ---------------------------------
    -- The engine's whole overlay  --
    ---------------------------------
 
@@ -179,6 +250,11 @@ package body WNM.Looper is
       Held_Scratch : Held_Table;
 
       Auto_Setting : Auto_Kind;
+
+      Arp       : Arp_Channel_Array;
+      Arp_Seed  : UInt32;
+      --  A plain LCG seed for Arp_Random, not anything cryptographic:
+      --  just needs to not repeat obviously over a few bars.
    end record
      with Volatile, Alignment => 1;
    --  All_Steps_Arr itself is only 1-byte aligned (it is a packed array, so
@@ -291,6 +367,8 @@ package body WNM.Looper is
       Overlay_Ptr.Record_Start_Count := 0;
       Overlay_Ptr.Auto_Setting := Auto_Off;
       Held_Reset (Overlay_Ptr.Record_Held);
+      Overlay_Ptr.Arp := (others => (others => <>));
+      Overlay_Ptr.Arp_Seed := 12345;
    end Reset;
 
    -------------------
@@ -1404,5 +1482,288 @@ package body WNM.Looper is
    begin
       Overlay_Ptr.Auto_Setting := Setting;
    end Set_Auto_Setting;
+
+   ------------------------------------------------------------------------
+   --  LiveArp
+   ------------------------------------------------------------------------
+
+   ------------------
+   -- Division_Us  --
+   ------------------
+
+   function Division_Us (D : Arp_Division_Kind; Beat_Us : UInt32)
+                         return UInt32
+   is
+      --  A "T" division is the triplet of the straight one named right
+      --  before it: 2/3 its duration, since 3 of them fill the time 2
+      --  straight ones would.
+   begin
+      case D is
+         when D_1_4  => return Beat_Us;
+         when D_1_2T => return (Beat_Us * 8) / 3;  -- 2 beats, 2/3 duration
+         when D_1_8  => return Beat_Us / 2;
+         when D_1_4T => return (Beat_Us * 2) / 3;
+         when D_1_16 => return Beat_Us / 4;
+         when D_1_8T => return Beat_Us / 3;
+         when D_1_32 => return Beat_Us / 8;
+         when D_1_64 => return Beat_Us / 16;
+      end case;
+   end Division_Us;
+
+   ----------------
+   -- Arp_Style  --
+   ----------------
+
+   function Arp_Style (Channel : Arp_Channel) return Arp_Style_Kind
+   is (Overlay_Ptr.Arp (Channel).Style);
+
+   procedure Set_Arp_Style (Channel : Arp_Channel; S : Arp_Style_Kind) is
+   begin
+      Overlay_Ptr.Arp (Channel).Style := S;
+   end Set_Arp_Style;
+
+   -------------------
+   -- Arp_Division  --
+   -------------------
+
+   function Arp_Division (Channel : Arp_Channel) return Arp_Division_Kind
+   is (Overlay_Ptr.Arp (Channel).Division);
+
+   procedure Set_Arp_Division (Channel : Arp_Channel; D : Arp_Division_Kind)
+   is
+   begin
+      Overlay_Ptr.Arp (Channel).Division := D;
+   end Set_Arp_Division;
+
+   -----------------------
+   -- Arp_Octave_Down/Up --
+   -----------------------
+
+   function Arp_Octave_Down (Channel : Arp_Channel) return Boolean
+   is (Overlay_Ptr.Arp (Channel).Octave_Down);
+
+   function Arp_Octave_Up (Channel : Arp_Channel) return Boolean
+   is (Overlay_Ptr.Arp (Channel).Octave_Up);
+
+   procedure Set_Arp_Octave_Down (Channel : Arp_Channel; On : Boolean) is
+   begin
+      Overlay_Ptr.Arp (Channel).Octave_Down := On;
+   end Set_Arp_Octave_Down;
+
+   procedure Set_Arp_Octave_Up (Channel : Arp_Channel; On : Boolean) is
+   begin
+      Overlay_Ptr.Arp (Channel).Octave_Up := On;
+   end Set_Arp_Octave_Up;
+
+   -------------------
+   -- Arp_Note_On   --
+   -------------------
+
+   procedure Arp_Note_On (Channel  : Arp_Channel;
+                          Key      : MIDI.MIDI_Key;
+                          Velocity : MIDI.MIDI_Data)
+   is
+   begin
+      Arp_Table_Set (Overlay_Ptr.Arp (Channel).Held, Key, Velocity);
+   end Arp_Note_On;
+
+   --------------------
+   -- Arp_Note_Off   --
+   --------------------
+
+   procedure Arp_Note_Off (Channel : Arp_Channel; Key : MIDI.MIDI_Key) is
+   begin
+      Arp_Table_Clear (Overlay_Ptr.Arp (Channel).Held, Key);
+   end Arp_Note_Off;
+
+   ------------------
+   -- Arp_Reset    --
+   ------------------
+
+   procedure Arp_Reset (Channel : Arp_Channel) is
+      State : Arp_Channel_State renames Overlay_Ptr.Arp (Channel);
+   begin
+      State.Held := (others => <>);
+      State.Sounding := (others => <>);
+      State.Step_Index := 0;
+      State.Has_Stepped := False;
+   end Arp_Reset;
+
+   ------------------
+   -- Arp_Next_Rnd --
+   ------------------
+
+   function Arp_Next_Rnd return UInt32 is
+   begin
+      --  Plain linear congruential generator, parameters from Numerical
+      --  Recipes. Not cryptographic, just needs to not repeat obviously
+      --  over a few bars of random-style stepping.
+      Overlay_Ptr.Arp_Seed := Overlay_Ptr.Arp_Seed * 1_664_525 + 1_013_904_223;
+      return Overlay_Ptr.Arp_Seed;
+   end Arp_Next_Rnd;
+
+   --------------
+   -- Arp_Tick --
+   --------------
+
+   procedure Arp_Tick (Now_Us : UInt64; Beat_Us : UInt32;
+                       Emit   : Arp_Emit_Proc)
+   is
+   begin
+      if Emit = null then
+         return;
+      end if;
+
+      for Channel in Arp_Channel loop
+         declare
+            State : Arp_Channel_State renames Overlay_Ptr.Arp (Channel);
+         begin
+            if State.Style = Arp_Off then
+               goto Next_Channel;
+            end if;
+
+            if State.Has_Stepped
+              and then Now_Us - State.Last_Step_Us <
+                UInt64 (Division_Us (State.Division, Beat_Us))
+            then
+               goto Next_Channel;
+            end if;
+
+            --  Snapped to the division boundary rather than reset to
+            --  Now_Us, so a tick arriving a little late does not push
+            --  every following step later too (same reasoning as the loop
+            --  engine's own cycle-wrap handling).
+            State.Last_Step_Us :=
+              (if State.Has_Stepped
+               then State.Last_Step_Us
+                 + UInt64 (Division_Us (State.Division, Beat_Us))
+               else Now_Us);
+            State.Has_Stepped := True;
+
+            --  Stop whatever this channel was sounding.
+            for E of State.Sounding loop
+               if E.Used then
+                  Emit (Channel, E.Key, E.Velocity, False);
+                  E.Used := False;
+               end if;
+            end loop;
+
+            --  Gather currently held notes, sorted ascending by key (a
+            --  plain insertion sort: Arp_Max_Notes is small).
+            declare
+               Sorted : Arp_Note_Table := (others => <>);
+               Count  : Natural := 0;
+            begin
+               for E of State.Held loop
+                  if E.Used then
+                     declare
+                        Insert_At : Natural := Count + 1;
+                     begin
+                        while Insert_At > 1
+                          and then Sorted (Insert_At - 1).Key > E.Key
+                        loop
+                           Sorted (Insert_At) := Sorted (Insert_At - 1);
+                           Insert_At := Insert_At - 1;
+                        end loop;
+                        Sorted (Insert_At) := E;
+                        Count := Count + 1;
+                     end;
+                  end if;
+               end loop;
+
+               if Count = 0 then
+                  State.Step_Index := 0;
+                  goto Next_Channel;
+               end if;
+
+               declare
+                  procedure Sound (Idx : Natural) is
+                     Key : constant MIDI.MIDI_Key := Sorted (Idx + 1).Key;
+                     Vel : constant MIDI.MIDI_Data :=
+                       Sorted (Idx + 1).Velocity;
+                  begin
+                     Arp_Table_Set (State.Sounding, Key, Vel);
+                     Emit (Channel, Key, Vel, True);
+
+                     if State.Octave_Down and then Integer (Key) >= 12 then
+                        declare
+                           Low : constant MIDI.MIDI_Key :=
+                             MIDI.MIDI_Key (Integer (Key) - 12);
+                        begin
+                           Arp_Table_Set (State.Sounding, Low, Vel);
+                           Emit (Channel, Low, Vel, True);
+                        end;
+                     end if;
+
+                     if State.Octave_Up and then Integer (Key) <= 115 then
+                        declare
+                           High : constant MIDI.MIDI_Key :=
+                             MIDI.MIDI_Key (Integer (Key) + 12);
+                        begin
+                           Arp_Table_Set (State.Sounding, High, Vel);
+                           Emit (Channel, High, Vel, True);
+                        end;
+                     end if;
+                  end Sound;
+
+                  Idx : Natural;
+               begin
+                  case State.Style is
+                     when Arp_Off => null;  --  unreachable, caught above
+
+                     when Arp_Chord =>
+                        for I in 0 .. Count - 1 loop
+                           Sound (I);
+                        end loop;
+
+                     when Arp_Up =>
+                        Idx := State.Step_Index mod Count;
+                        Sound (Idx);
+                        State.Step_Index := State.Step_Index + 1;
+
+                     when Arp_Down =>
+                        Idx := Count - 1 - (State.Step_Index mod Count);
+                        Sound (Idx);
+                        State.Step_Index := State.Step_Index + 1;
+
+                     when Arp_Up_Down_Exclusive =>
+                        if Count = 1 then
+                           Idx := 0;
+                        else
+                           declare
+                              Cycle : constant Natural := 2 * Count - 2;
+                              Pos   : constant Natural :=
+                                State.Step_Index mod Cycle;
+                           begin
+                              Idx := (if Pos < Count then Pos
+                                     else Cycle - Pos);
+                           end;
+                        end if;
+                        Sound (Idx);
+                        State.Step_Index := State.Step_Index + 1;
+
+                     when Arp_Up_Down_Inclusive =>
+                        declare
+                           Cycle : constant Natural := 2 * Count;
+                           Pos   : constant Natural :=
+                             State.Step_Index mod Cycle;
+                        begin
+                           Idx := (if Pos < Count then Pos
+                                  else Cycle - 1 - Pos);
+                        end;
+                        Sound (Idx);
+                        State.Step_Index := State.Step_Index + 1;
+
+                     when Arp_Random =>
+                        Idx := Natural (Arp_Next_Rnd mod UInt32 (Count));
+                        Sound (Idx);
+                        State.Step_Index := State.Step_Index + 1;
+                  end case;
+               end;
+            end;
+         end;
+         <<Next_Channel>>
+      end loop;
+   end Arp_Tick;
 
 end WNM.Looper;
