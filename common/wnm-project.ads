@@ -19,6 +19,8 @@
 --                                                                           --
 -------------------------------------------------------------------------------
 
+with System;
+
 with MIDI;
 with WNM.Sequence_Copy;
 with WNM.Chord_Settings;
@@ -54,6 +56,42 @@ package WNM.Project is
 
    procedure Clear;
    --  Reset the current project to default values
+
+   procedure Clear_Sequences;
+   --  Reset just Steps and Patterns to default values, the part of Clear
+   --  that WNM.Looper needs when the Sequencer Mode switches to
+   --  OG_Sequencer and the step data underneath the loop event pool has to
+   --  go back to something valid.
+
+   Steps_Storage_Bytes : constant := 53_248;
+   --  Size of All_Steps_Arr (16 tracks * 16 patterns * 16 steps), read off
+   --  a -gnatR2 dump rather than hand-counted bits, and checked against the
+   --  real private type in the body besides. Exposed so WNM.Looper can
+   --  overlay its own event pool on this storage while Sequencer_Mode is
+   --  Four_Track_Looper, the only mode that has no use for step data.
+   --  Patterns is left alone, it is small and not worth the extra
+   --  bookkeeping of a second overlay.
+
+   Steps_Storage_Address : constant System.Address;
+   --  A deferred constant rather than a function: its value is the
+   --  address of a fixed library-level object, so GNAT can treat it as
+   --  static. Through a function call instead, every reference to it in
+   --  an overlay (WNM.Looper has several) had to cache its own copy of the
+   --  computed address, which on its own ran this mode's bookkeeping
+   --  almost 200 bytes over the RAM budget. Measured, not assumed.
+
+   type Sequencer_Mode_Kind is (OG_Sequencer, Four_Track_Looper);
+   function Img (M : Sequencer_Mode_Kind) return String
+   is (case M is
+          when OG_Sequencer     => "OG Sequencer",
+          when Four_Track_Looper => "4-Track Looper");
+
+   function Sequencer_Mode return Sequencer_Mode_Kind;
+   procedure Set_Sequencer_Mode (M : Sequencer_Mode_Kind);
+   --  Does not clear anything itself: the Sequencer Mode menu calls
+   --  Clear_Sequences or WNM.Looper.Clear_All first, after the player has
+   --  confirmed the warning, since whichever side is being abandoned
+   --  shares RAM with the side taking over.
 
    procedure Handle_MIDI (Msg : MIDI.Message);
 
@@ -797,8 +835,8 @@ package WNM.Project is
 
 private
 
-   type Global_Settings is (BPM);
-   for Global_Settings use (BPM => 0);
+   type Global_Settings is (BPM, Sequencer_Mode_Setting);
+   for Global_Settings use (BPM => 0, Sequencer_Mode_Setting => 1);
 
    package Boolean_Next is new Enum_Next (Boolean);
    use Boolean_Next;
@@ -1163,9 +1201,17 @@ private
       Gains : Gains_Arr := Default_Gains;
 
       FX : FX_Settings_Rec;
+
+      Mode : Sequencer_Mode_Kind := OG_Sequencer;
+      --  Steps and Patterns above are only meaningful in OG_Sequencer.
+      --  Four_Track_Looper reuses that same RAM for WNM.Looper's own event
+      --  pool instead (see Steps_Storage_Address), so the two can never
+      --  both hold live data at once.
    end record;
 
    G_Project : Project_Rec := (others => <>);
+
+   Steps_Storage_Address : constant System.Address := G_Project.Steps'Address;
 
    procedure Synchronize_Synth_Settings (T : Tracks);
    --  Send all the synth voice settings to the coprocessor to update it

@@ -115,6 +115,7 @@ package body WNM.Project.Storage is
    procedure Read is new File_In.Read_Gen_Mod (Repeat_Cnt);
    procedure Read is new File_In.Read_Gen_Enum (Repeat_Rate_Kind);
    procedure Read is new File_In.Read_Gen_Enum (Note_Mode_Kind);
+   procedure Read is new File_In.Read_Gen_Enum (Sequencer_Mode_Kind);
    procedure Read is new File_In.Read_Gen_Int (WNM.Rand_Percent);
    procedure Read is new File_In.Read_Gen_Enum
      (WNM.Project.Alt_Slider_Control);
@@ -547,6 +548,10 @@ package body WNM.Project.Storage is
       --  Only store the integer part of the BPM
       Output.Push (Out_UInt (G_Project.BPM));
 
+      Output.Push
+        (Out_UInt (Global_Settings'Enum_Rep (Sequencer_Mode_Setting)));
+      Output.Push (Out_UInt (Sequencer_Mode_Kind'Enum_Rep (G_Project.Mode)));
+
       Output.End_Section;
    end Save_Global;
 
@@ -673,7 +678,16 @@ package body WNM.Project.Storage is
          Save_Tracks (Output);
       end if;
 
-      if Output.Status = Ok then
+      --  Patterns and Steps hold the step sequencer's own data. In
+      --  Four_Track_Looper mode that same RAM is overlaid by the loop
+      --  engine's event pool (see WNM.Project.Steps_Storage_Address), so
+      --  reading it here as Step_Rec values would decode raw loop event
+      --  bytes as sequencer settings, and an out-of-range enum
+      --  representation would crash the save. Skip both while Looper owns
+      --  that RAM.
+      if Output.Status = Ok
+        and then Sequencer_Mode = OG_Sequencer
+      then
          Save_Patterns (Output);
       end if;
 
@@ -685,7 +699,9 @@ package body WNM.Project.Storage is
          Save_Progressions (Output);
       end if;
 
-      if Output.Status = Ok then
+      if Output.Status = Ok
+        and then Sequencer_Mode = OG_Sequencer
+      then
          Save_Steps (Output);
       end if;
 
@@ -1182,6 +1198,9 @@ package body WNM.Project.Storage is
                then
                   G_Project.BPM := Beat_Per_Minute (Raw);
                end if;
+
+            when Sequencer_Mode_Setting =>
+               Read (Input, G_Project.Mode);
          end case;
 
          exit when Input.Status /= Ok;
@@ -1348,6 +1367,12 @@ package body WNM.Project.Storage is
 
       --  Set default gains in case there is no mixer section saved
       G_Project.Gains := Default_Gains;
+
+      --  Likewise for Steps/Patterns: a Four_Track_Looper project has no
+      --  Pattern or Sequence section at all (see the Save guard above), so
+      --  without this whatever a previously loaded project left behind,
+      --  step data or raw loop event bytes, would carry over unchanged.
+      Clear_Sequences;
 
       loop
 

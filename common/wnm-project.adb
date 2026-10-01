@@ -2109,20 +2109,12 @@ package body WNM.Project is
       end loop;
    end Synchronize_Synth_Settings;
 
-   -----------
-   -- Clear --
-   -----------
+   ---------------------
+   -- Clear_Sequences --
+   ---------------------
 
-   procedure Clear is
+   procedure Clear_Sequences is
    begin
-      --  G_Project := (others => <>); Unforunately the statement above is
-      --  not usable as it first create a full instance of the project on the
-      --  stack before copying it into G_Project. Of course there's not enough
-      --  room on the stack to hold the full project.
-
-      G_Project.BPM := BPM_Default;
-      Set_Track_Defaults (G_Project.Tracks);
-
       G_Project.Patterns := (others => (others => Default_Pattern));
 
       for T in Tracks loop
@@ -2144,6 +2136,39 @@ package body WNM.Project is
                  (others => (others => Default_Step));
          end case;
       end loop;
+   end Clear_Sequences;
+
+   pragma Compile_Time_Error
+     (All_Steps_Arr'Size /= Steps_Storage_Bytes * 8,
+      "Steps_Storage_Bytes no longer matches All_Steps_Arr, update it");
+
+   ---------------------
+   -- Sequencer_Mode  --
+   ---------------------
+
+   function Sequencer_Mode return Sequencer_Mode_Kind is (G_Project.Mode);
+
+   procedure Set_Sequencer_Mode (M : Sequencer_Mode_Kind) is
+   begin
+      G_Project.Mode := M;
+   end Set_Sequencer_Mode;
+
+   -----------
+   -- Clear --
+   -----------
+
+   procedure Clear is
+   begin
+      --  G_Project := (others => <>); Unforunately the statement above is
+      --  not usable as it first create a full instance of the project on the
+      --  stack before copying it into G_Project. Of course there's not enough
+      --  room on the stack to hold the full project.
+
+      G_Project.BPM := BPM_Default;
+      Set_Track_Defaults (G_Project.Tracks);
+
+      G_Project.Mode := OG_Sequencer;
+      Clear_Sequences;
 
       G_Project.Parts := (others => <>);
       G_Project.Part_Origin := WNM.Parts'First;

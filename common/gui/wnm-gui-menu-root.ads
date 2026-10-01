@@ -26,6 +26,7 @@ package WNM.GUI.Menu.Root is
 private
 
    type Menu_Items is (Projects,
+                       Sequencer_Mode_Select,
                        Tracks_Mixer,
                        User_Waveform,
                        Live_FX,
