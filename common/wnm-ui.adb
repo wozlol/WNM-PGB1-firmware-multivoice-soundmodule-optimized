@@ -39,6 +39,8 @@ with WNM.GUI.Popup;
 
 package body WNM.UI is
 
+   use type WNM.Project.Sequencer_Mode_Kind;
+
    procedure Signal_Event (B : Button; Evt : Button_Event);
 
    procedure Toggle_FX (B : Keyboard_Button);
@@ -192,8 +194,18 @@ package body WNM.UI is
 
                   when Keyboard_Button =>
 
-                     Project.Step_Sequencer.On_Press
-                       (B, Current_Input_Mode);
+                     --  On_Press reads and writes Tracks/Patterns/Steps
+                     --  directly (step entry, trigger toggling, step
+                     --  preview), which in Four_Track_Looper mode is the
+                     --  loop event pool's own storage. The Looper's own
+                     --  keypad handling is a later phase
+                     --  (LOOPER_MODE_PLAN.md P6), not built yet, so for
+                     --  now a keypad press in that mode does nothing
+                     --  rather than corrupting the loop data.
+                     if Project.Sequencer_Mode = Project.OG_Sequencer then
+                        Project.Step_Sequencer.On_Press
+                          (B, Current_Input_Mode);
+                     end if;
 
                   when others =>
                      null;
@@ -231,8 +243,15 @@ package body WNM.UI is
 
                when Pattern_Button =>
                   if Evt = On_Release then
-                     if Select_Done then
-                        --  Go back a main mode
+                     if Select_Done
+                       or else Project.Sequencer_Mode /= Project.OG_Sequencer
+                     then
+                        --  Go back a main mode. Also taken in
+                        --  Four_Track_Looper mode: Pattern_Menu reads
+                        --  Patterns/Steps directly, which in that mode is
+                        --  the loop event pool's own storage, and its
+                        --  Looper-mode replacement is a later phase
+                        --  (LOOPER_MODE_PLAN.md P6), not built yet.
                         Current_Input_Mode := Last_Main_Mode;
 
                      else
@@ -286,8 +305,15 @@ package body WNM.UI is
 
                when Step_Button =>
                   if Evt = On_Release then
-                     if Select_Done then
-                        --  Go back a main mode
+                     if Select_Done
+                       or else Project.Sequencer_Mode /= Project.OG_Sequencer
+                     then
+                        --  Go back a main mode. Also taken in
+                        --  Four_Track_Looper mode: Step_Menu reads Steps
+                        --  directly, which in that mode is the loop event
+                        --  pool's own storage, and the Looper's own Step
+                        --  button behavior (LiveArp) is a later phase
+                        --  (LOOPER_MODE_PLAN.md P5), not built yet.
                         Current_Input_Mode := Last_Main_Mode;
 
                      else
@@ -342,25 +368,39 @@ package body WNM.UI is
                         Toggle_FX (B);
                         Select_Done := True;
 
+                     --  Pattern_Button, Track_Button and Step_Button here
+                     --  all start copying Steps (despite what the "Track"
+                     --  one sounds like: it copies every step of every
+                     --  pattern for a track, not the track's engine
+                     --  settings). In Four_Track_Looper mode that storage
+                     --  is the loop event pool, so none of these three may
+                     --  run there. Song_Button below is unaffected, it
+                     --  copies Song Parts or Chord Progressions, neither
+                     --  of which this mode touches.
+
                      when Pattern_Button =>
-                        Copy_T := WNM.Sequence_Copy.Start_Copy_Pattern
-                          (Project.Editing_Track);
-                        Current_Input_Mode := Copy;
-                        Select_Done := True;
+                        if Project.Sequencer_Mode = Project.OG_Sequencer then
+                           Copy_T := WNM.Sequence_Copy.Start_Copy_Pattern
+                             (Project.Editing_Track);
+                           Current_Input_Mode := Copy;
+                           Select_Done := True;
+                        end if;
 
                      when Track_Button =>
-                        Copy_T := WNM.Sequence_Copy.Start_Copy_Track;
-
-                        Current_Input_Mode := Copy;
-                        Select_Done := True;
+                        if Project.Sequencer_Mode = Project.OG_Sequencer then
+                           Copy_T := WNM.Sequence_Copy.Start_Copy_Track;
+                           Current_Input_Mode := Copy;
+                           Select_Done := True;
+                        end if;
 
                      when Step_Button =>
-                        Copy_T := WNM.Sequence_Copy.Start_Copy_Step
-                          (Project.Editing_Track,
-                           Project.Editing_Pattern);
-
-                        Current_Input_Mode := Copy;
-                        Select_Done := True;
+                        if Project.Sequencer_Mode = Project.OG_Sequencer then
+                           Copy_T := WNM.Sequence_Copy.Start_Copy_Step
+                             (Project.Editing_Track,
+                              Project.Editing_Pattern);
+                           Current_Input_Mode := Copy;
+                           Select_Done := True;
+                        end if;
 
                      when Song_Button =>
                         Copy_T := WNM.Sequence_Copy.Start_Copy_Song;
@@ -925,6 +965,16 @@ package body WNM.UI is
                if Chroma_Keyboard_On then
                   LEDs_Chroma_Keyboard;
 
+               elsif Project.Sequencer_Mode /= Project.OG_Sequencer then
+                  --  Both branches below read Steps directly (per-step
+                  --  trigger state, playhead lookups), which in
+                  --  Four_Track_Looper mode is the loop event pool's own
+                  --  storage. Just the track-select LED, using only the
+                  --  plain Editing_Track variable, until the Looper's own
+                  --  Track_Mode LEDs are built (LOOPER_MODE_PLAN.md P6).
+                  LEDs.Turn_On (To_Button (Project.Editing_Track),
+                               LEDs.Track);
+
                elsif Recording then
 
                   --  Active steps in edit mode
@@ -976,6 +1026,16 @@ package body WNM.UI is
 
                if Chroma_Keyboard_On then
                   LEDs_Chroma_Keyboard;
+               elsif Project.Sequencer_Mode /= Project.OG_Sequencer then
+                  --  Reaching Step_Mode at all in Four_Track_Looper mode
+                  --  should not happen (the Step button bounces back
+                  --  instead of entering it, see the Step_Select handling
+                  --  above), but Current_Input_Mode can already be
+                  --  Step_Mode from before a mode switch, so this is
+                  --  checked here too rather than only relied on there.
+                  --  Everything below reads Steps directly, which in this
+                  --  mode is the loop event pool's own storage.
+                  null;
                else
 
                   if Recording then

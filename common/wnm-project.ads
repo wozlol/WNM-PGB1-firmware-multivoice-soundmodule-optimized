@@ -22,6 +22,7 @@
 with System;
 
 with MIDI;
+with MIDI.Time;
 with WNM.Sequence_Copy;
 with WNM.Chord_Settings;
 with WNM.Synth;
@@ -94,6 +95,17 @@ package WNM.Project is
    --  shares RAM with the side taking over.
 
    procedure Handle_MIDI (Msg : MIDI.Message);
+
+   procedure MIDI_Clock_Tick_Dispatch (Step : MIDI.Time.Step_Count);
+   --  WNM.MIDI_Clock's own Tick_Callback. The clock itself, BPM and
+   --  start/stop/continue, is shared transport that both sequencer modes
+   --  need and this does not touch. What it decides is whether THIS tick
+   --  also drives the step sequencer's own Execute_Step, which plays
+   --  sequenced steps by reading Tracks/Patterns/Steps, the storage that
+   --  WNM.Looper's event pool lives on top of in Four_Track_Looper mode.
+   --  Routed here instead of wiring WNM.Project.Step_Sequencer directly
+   --  into WNM.MIDI_Clock, so Step_Sequencer itself stays exactly what it
+   --  always was, with no awareness of Looper mode anywhere inside it.
 
    ----------
    -- Step --

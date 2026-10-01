@@ -94,6 +94,78 @@ comfortably more than the reference engine's 3072), costs zero bytes of
 permanent RAM over the pre-feature baseline. Verified by the build report,
 not estimated.
 
+## The step sequencer must not run at all in Looper mode
+
+This was wrong in the first build of the Sequencer Mode tab, and it was a
+real gap, not a hypothetical: the tab let you switch into Four_Track_Looper
+mode, but nothing stopped WNM.Project.Step_Sequencer from continuing to
+run, reading and writing Tracks/Patterns/Steps exactly as before, which in
+that mode is the loop event pool's own storage. Decoding the pool's raw
+bytes as Step_Rec enum values (Trigger_Kind, Note_Mode_Kind, ...) would hit
+an out-of-range representation on close to the first LED refresh or
+keypress and raise Constraint_Error. Found and fixed before any of this
+reached hardware.
+
+The fix is routing, not guards bolted onto Step_Sequencer's internals:
+every place that currently calls into it was found (a handful of call
+sites, all outside that package) and each now checks Sequencer_Mode before
+calling, so in Four_Track_Looper mode the calls simply do not happen.
+Step_Sequencer itself is untouched, with no awareness of Looper mode
+anywhere inside it, exactly as it should be for two modes that are not
+both live at once.
+
+What is shared and was NOT touched: WNM.MIDI_Clock itself (BPM, start/
+stop/continue, the tick) is the clock the whole transport runs on, and
+Four_Track_Looper needs the exact same thing for its own quantize/bar
+timing once it is wired in. Nothing about tempo or sync is mode-specific.
+
+Found and routed:
+
+- **The clock tick.** `WNM.MIDI_Clock`'s `Tick_Callback` pointed directly
+  at `Step_Sequencer.MIDI_Clock_Tick`, which runs `Execute_Step` on every
+  beat subdivision regardless of anything on screen. Re-pointed at a new
+  `WNM.Project.MIDI_Clock_Tick_Dispatch`, which calls Step_Sequencer only
+  in OG_Sequencer mode. In Looper mode this is `null` for now, since the
+  Looper's own tick wiring is P4.
+- **Keypad step entry (`On_Press`).** Writes `Step_Data.Note_Mode`/`.Note`/
+  `.Trig` directly. Its one call site, in `wnm-ui.adb`, now only fires in
+  OG_Sequencer mode.
+- **The Copy feature.** Less obvious: Pattern_Button, Track_Button and
+  Step_Button under the Func/Copy combo all start a copy that ends up
+  writing `G_Project.Steps` (the one bound to Track_Button copies every
+  step of every pattern for a track, not track engine settings, despite
+  the name). All three gated at their call sites in `wnm-ui.adb`.
+  Song_Button's copy (Song Parts, Chord Progressions) is untouched, it
+  never reaches Steps.
+- **Pattern_Menu and Step_Menu.** Both push screens
+  (`wnm-gui-menu-pattern_settings.adb`, `wnm-gui-menu-step_settings.adb`)
+  that read Steps through WNM.Project's "Step getters" (`Trigger`,
+  `Note_Mode`, `Duration`, `Velocity`, `CC_Value`, ...). Opening either is
+  now gated at the Pattern_Button/Step_Button handlers in `wnm-ui.adb`;
+  pressing them in Looper mode just bounces back to the previous mode,
+  same as if the screen had already been open. Track_Menu, Chord_Menu and
+  Sample_Edit_Menu were checked too and confirmed to never touch Steps or
+  Patterns, so they are untouched and still open normally in both modes.
+- **LED drawing.** The least obvious of all of these, and the one most
+  likely to actually fire, because it runs on every LED refresh rather
+  than only on a deliberate button press: Track_Mode's and Step_Mode's LED
+  code in `wnm-ui.adb` reads per-step trigger state (`Project.Set (Step =>
+  ...)`) and per-track playhead state to light the step and trigger LEDs.
+  Both call sites now check Sequencer_Mode directly and skip to a minimal
+  safe fallback (just the track-select LED) in Looper mode, checked there
+  directly rather than only relied on via the entry gates above, because
+  `Current_Input_Mode` can already be Step_Mode or Track_Mode from before
+  a mode switch and nothing resets it when Sequencer_Mode changes.
+
+Swept for anything else by grepping the whole tree for every direct
+`G_Project.Steps`/`G_Project.Patterns` reference and every caller of each
+of WNM.Project's Step getters and WNM.Project.Step_Sequencer's public
+subprograms: exactly the files above, nothing else found. Pattern_Mode's
+LED code (chained-pattern display) reads `Patterns` (Has_Link), not Steps,
+and Patterns itself is real, always-valid Pattern_Rec data in both modes
+(only Steps is overlaid), so it is safe, just semantically stale in Looper
+mode, a cosmetic gap for P6 rather than a safety one.
+
 ## Phase status
 
 - [x] P1: Sequencer Mode setting, persisted, and the root menu tab.

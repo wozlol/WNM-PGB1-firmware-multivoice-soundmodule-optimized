@@ -24,6 +24,7 @@ with HAL; use HAL;
 with WNM.Coproc;
 with WNM.Utils;
 with WNM.UI;
+with WNM.Project.Step_Sequencer;
 with WNM.Project_Load_Broadcast;
 with WNM.Sample_Library;
 
@@ -2152,6 +2153,25 @@ package body WNM.Project is
    begin
       G_Project.Mode := M;
    end Set_Sequencer_Mode;
+
+   ------------------------------
+   -- MIDI_Clock_Tick_Dispatch --
+   ------------------------------
+
+   procedure MIDI_Clock_Tick_Dispatch (Step : MIDI.Time.Step_Count) is
+   begin
+      case G_Project.Mode is
+         when OG_Sequencer =>
+            Step_Sequencer.MIDI_Clock_Tick (Step);
+
+         when Four_Track_Looper =>
+            null;
+            --  WNM.Looper's own tick wiring is a later phase
+            --  (LOOPER_MODE_PLAN.md P4), not built yet. Nothing here
+            --  touches Step_Sequencer in this mode, deliberately: its
+            --  storage is the loop event pool while this mode is active.
+      end case;
+   end MIDI_Clock_Tick_Dispatch;
 
    -----------
    -- Clear --
