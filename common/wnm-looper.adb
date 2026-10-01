@@ -219,6 +219,28 @@ package body WNM.Looper is
    --  bookkeeping was supposed to save. Every reference below is written
    --  as Overlay_Ptr.Field instead.
 
+   --------------------
+   -- To_Loop_Event  --
+   --------------------
+
+   function To_Loop_Event (Msg : MIDI.Message) return MIDI_Event is
+      function Convert is new Ada.Unchecked_Conversion
+        (MIDI.Message, MIDI_Event);
+   begin
+      return Convert (Msg);
+   end To_Loop_Event;
+
+   ---------------------
+   -- To_MIDI_Message --
+   ---------------------
+
+   function To_MIDI_Message (Event : MIDI_Event) return MIDI.Message is
+      function Convert is new Ada.Unchecked_Conversion
+        (MIDI_Event, MIDI.Message);
+   begin
+      return Convert (Event);
+   end To_MIDI_Message;
+
    function Status_Type (Status : UInt8) return UInt8
    is (Status and 16#F0#);
    function Status_Channel (Status : UInt8) return UInt8

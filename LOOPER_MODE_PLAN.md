@@ -221,8 +221,54 @@ mode, a cosmetic gap for P6 rather than a safety one.
       Known gap carried from P2: `Up`/`Down` call `Set_Bars`, which does
       not yet resize a running engine, so changing bars here only takes
       effect for a track's next recording, not one already looping.
-- [ ] P4: Wire the engine into the MIDI capture/playback path, replacing
-      the step sequencer dispatch when in Looper mode.
+- [~] P4: Core record/playback wiring is real and end to end now, with a
+      simplified interim control scheme standing in for the full button
+      remap (P6):
+      - `MIDI.Message` and `WNM.Looper.MIDI_Event` have the exact same
+        wire-format representation clause (checked against the explicit
+        `with Size => 3*8` and byte layout in `deps/midi/src/midi.ads`,
+        not assumed), so converting between them
+        (`WNM.Looper.To_Loop_Event`/`To_MIDI_Message`) is a plain
+        `Unchecked_Conversion`, not a real transform.
+      - `WNM.Project.Handle_MIDI`'s `Send_To_Synth` (the one path every
+        live Note On/Off, CC and Pitch Bend already goes through) now also
+        calls `WNM.Looper.Capture` after the channel rewrite, so a loop
+        plays back on the same channel live playing just reached.
+        `Capture` is already a no-op when nothing is armed or recording,
+        so this costs nothing to call unconditionally rather than
+        tracking that state a second time here.
+      - `MIDI_Clock_Tick_Dispatch`'s Four_Track_Looper arm now calls
+        `WNM.Looper.Tick`, with `Looper_Emit` (pushes the due event to the
+        synth via `WNM.Coproc.Push_To_Synth`) and `Looper_Release` (stops
+        whatever `Collect_Held_Notes` says is still sounding on that
+        track) as the callbacks.
+      - The Play button now calls a new `Project.Play_Pause_Dispatch`
+        instead of `Step_Sequencer.Play_Pause` directly: always flips the
+        shared clock, and in Looper mode also calls
+        `WNM.Looper.Resume`/`Pause` to match (Resume falls back to Start
+        on its own when there is nothing paused to resume).
+      - The Rec button, interim mapping: arms/finishes a plain
+        (non-overdub) take on `WNM.Looper.Selected_Track`, fixed to
+        whatever bar count that track's column on the Looper tab is set
+        to (`Project.Looper_Bars_To_Us`, Beats_Per_Bar at the current BPM,
+        same definition the step sequencer's own Steps_Per_Bar uses).
+        Landing on a track column in the Looper tab is what sets
+        `Selected_Track` (there is no dedicated track-select button for
+        this mode yet), a real bug caught before it shipped: Arm_Record
+        was being called with Selected_Track as both the track to arm and
+        the only thing that could ever change it, so recording was stuck
+        on track 1 forever until this was wired.
+      Genuinely testable now: Rec, play some notes, Rec again (or let the
+      bar count run out), Play. Not yet done, honestly:
+      - Overdub, auto-track, auto-arm (the AUT column does nothing yet),
+        solo/mute, and the whole Play-button state machine from the spec
+        (tap/hold/double-tap for overdub/stop/clear/undo/bpm) are P6.
+      - `Set_Bars`/`Resize_Track` still are not connected (noted under
+        P2/P3 already), so changing a track's bar count only affects its
+        *next* recording, not one already looping.
+      - Nothing captures at reduced CC/pitch-bend resolution yet (full
+        resolution for now, a correctness-safe default, just not the
+        final design).
 - [ ] P5: LiveArp engine (styles, octave range, per-channel division,
       channel 10 sidecar, hold-to-ratchet recording).
 - [ ] P6: Play/Edit/Song/Pattern/Copy button remap for Looper mode.

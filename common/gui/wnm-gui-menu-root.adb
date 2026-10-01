@@ -312,17 +312,32 @@ package body WNM.GUI.Menu.Root is
                                   Event  :        Menu_Event)
    is
       use WNM.Looper;
+
+      procedure Sync_Selected_Track is
+      begin
+         --  Arm_Record always arms WNM.Looper.Selected_Track, and this is
+         --  the only place anything picks which track that is: there is
+         --  no dedicated track-select button for this mode yet (that is
+         --  part of the fuller button remap, LOOPER_MODE_PLAN.md P6), so
+         --  for now landing on a track column here is what decides what
+         --  the next Rec press arms.
+         if Column /= Looper_AUT_Column then
+            Select_Track (Loop_Track (Column));
+         end if;
+      end Sync_Selected_Track;
    begin
       case Event.Kind is
          when Right_Press =>
             Column :=
               (if Column = Looper_Column_Id'Last then Looper_Column_Id'First
                else Column + 1);
+            Sync_Selected_Track;
 
          when Left_Press =>
             Column :=
               (if Column = Looper_Column_Id'First then Looper_Column_Id'Last
                else Column - 1);
+            Sync_Selected_Track;
 
          when Up_Press =>
             if Column /= Looper_AUT_Column then

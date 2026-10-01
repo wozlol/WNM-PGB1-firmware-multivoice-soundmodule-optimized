@@ -20,6 +20,7 @@
 -------------------------------------------------------------------------------
 
 with System;
+with HAL;
 
 with MIDI;
 with MIDI.Time;
@@ -106,6 +107,20 @@ package WNM.Project is
    --  Routed here instead of wiring WNM.Project.Step_Sequencer directly
    --  into WNM.MIDI_Clock, so Step_Sequencer itself stays exactly what it
    --  always was, with no awareness of Looper mode anywhere inside it.
+
+   function Looper_Bars_To_Us (Bars : Standard.Positive) return HAL.UInt32;
+   --  Standard.Positive, not Positive: this package's own LFO_Amp_Kind has
+   --  an enum literal named Positive that shadows the predefined subtype.
+   --  A bar is Beats_Per_Bar beats, same definition the step sequencer
+   --  already uses (Steps_Per_Bar = Steps_Per_Beat * Beats_Per_Bar), at
+   --  whatever BPM is set right now. Used to arm a Looper recording for a
+   --  fixed, metronomic length instead of however long Rec stays held.
+
+   procedure Play_Pause_Dispatch;
+   --  The Play button's handler, in place of calling
+   --  WNM.Project.Step_Sequencer.Play_Pause directly. Always flips the
+   --  shared clock (both modes use it), and in Four_Track_Looper mode
+   --  also starts, resumes or pauses WNM.Looper's own transport to match.
 
    ----------
    -- Step --

@@ -27,6 +27,8 @@ with WNM.UI;
 with WNM.Project.Step_Sequencer;
 with WNM.Project_Load_Broadcast;
 with WNM.Sample_Library;
+with WNM.Looper;
+with WNM.MIDI_Clock;
 
 package body WNM.Project is
 
@@ -2154,6 +2156,61 @@ package body WNM.Project is
       G_Project.Mode := M;
    end Set_Sequencer_Mode;
 
+   -----------------
+   -- Looper_Emit --
+   -----------------
+
+   procedure Looper_Emit (Track : WNM.Looper.Loop_Track;
+                          At_Us : HAL.UInt32;
+                          Event : WNM.Looper.MIDI_Event)
+   is
+      pragma Unreferenced (Track, At_Us);
+      --  Which loop track and exactly when within this tick are both
+      --  already decided by WNM.Looper.Tick by the time this is called;
+      --  all that is left to do is play the event. The event's own
+      --  channel (set at capture time from whatever track was being
+      --  played live, see Send_To_Synth) is what actually routes it to
+      --  the right instrument, same as live playing always has.
+   begin
+      WNM.Coproc.Push_To_Synth
+        ((Kind     => WNM.Coproc.MIDI_Event,
+         MIDI_Evt => WNM.Looper.To_MIDI_Message (Event)));
+   end Looper_Emit;
+
+   --------------------------
+   -- Looper_Send_Note_Off --
+   --------------------------
+
+   procedure Looper_Send_Note_Off (Track    : WNM.Looper.Loop_Track;
+                                   Channel  : HAL.UInt8;
+                                   Note     : HAL.UInt8;
+                                   Velocity : HAL.UInt8)
+   is
+      pragma Unreferenced (Track, Velocity);
+   begin
+      WNM.Coproc.Push_To_Synth
+        ((Kind     => WNM.Coproc.MIDI_Event,
+         MIDI_Evt => (Kind     => MIDI.Note_Off,
+                      Chan     => MIDI.MIDI_Channel (Channel),
+                      Key      => MIDI.MIDI_Key (Note),
+                      Velocity => 0)));
+   end Looper_Send_Note_Off;
+
+   --------------------
+   -- Looper_Release --
+   --------------------
+
+   procedure Looper_Release (Track : WNM.Looper.Loop_Track) is
+   begin
+      --  Stops whatever this track's cursor has already stepped past and
+      --  is still sounding, same reasoning as a track regaining
+      --  audibility needing to retrigger: WNM.Looper itself does not
+      --  track "currently sounding notes" outside the event list, so this
+      --  replays what is held rather than keeping a separate note-on
+      --  tally.
+      WNM.Looper.Collect_Held_Notes (Track, Looper_Send_Note_Off'Access);
+   end Looper_Release;
+
    ------------------------------
    -- MIDI_Clock_Tick_Dispatch --
    ------------------------------
@@ -2165,13 +2222,50 @@ package body WNM.Project is
             Step_Sequencer.MIDI_Clock_Tick (Step);
 
          when Four_Track_Looper =>
-            null;
-            --  WNM.Looper's own tick wiring is a later phase
-            --  (LOOPER_MODE_PLAN.md P4), not built yet. Nothing here
-            --  touches Step_Sequencer in this mode, deliberately: its
-            --  storage is the loop event pool while this mode is active.
+            WNM.Looper.Tick (WNM.Time.Clock,
+                             Looper_Emit'Access,
+                             Looper_Release'Access);
       end case;
    end MIDI_Clock_Tick_Dispatch;
+
+   -------------------------
+   -- Looper_Bars_To_Us  --
+   -------------------------
+
+   function Looper_Bars_To_Us (Bars : Standard.Positive) return HAL.UInt32 is
+      Us : constant Time.Time_Microseconds :=
+        Microseconds_Per_Beat * Time.Time_Microseconds (Beats_Per_Bar)
+          * Time.Time_Microseconds (Bars);
+   begin
+      return (if Us > Time.Time_Microseconds (HAL.UInt32'Last)
+             then HAL.UInt32'Last
+             else HAL.UInt32 (Us));
+   end Looper_Bars_To_Us;
+
+   -----------------------
+   -- Play_Pause_Dispatch --
+   -----------------------
+
+   procedure Play_Pause_Dispatch is
+   begin
+      --  Flips the shared clock either way: both modes use it, and
+      --  Step_Sequencer's own Playing check already makes it a no-op on
+      --  its end in Looper mode (nothing calls Execute_Step there, see
+      --  MIDI_Clock_Tick_Dispatch above).
+      Step_Sequencer.Play_Pause;
+
+      if G_Project.Mode = Four_Track_Looper then
+         if WNM.MIDI_Clock.Running then
+            --  Resume falls back to Start on its own when there was
+            --  nothing paused to resume, so this is right whether this is
+            --  the first play, a resume, or starting again after a full
+            --  stop.
+            WNM.Looper.Resume (WNM.Time.Clock);
+         else
+            WNM.Looper.Pause (WNM.Time.Clock, Looper_Release'Access);
+         end if;
+      end if;
+   end Play_Pause_Dispatch;
 
    -----------
    -- Clear --
@@ -2238,6 +2332,23 @@ package body WNM.Project is
 
          WNM.Coproc.Push_To_Synth ((Kind => MIDI_Event,
                                     MIDI_Evt => New_Msg));
+
+         --  Captured after the channel rewrite above, not the raw
+         --  incoming message, so a loop plays back on the same channel
+         --  live playing just reached, the way the OG sequencer's own
+         --  steps already do. WNM.Looper.Capture is already a no-op
+         --  whenever nothing is actually armed or recording, so this
+         --  costs nothing to call unconditionally rather than tracking
+         --  that state a second time here.
+         if Sequencer_Mode = Four_Track_Looper then
+            declare
+               Captured : constant Boolean :=
+                 WNM.Looper.Capture
+                   (WNM.Time.Clock, WNM.Looper.To_Loop_Event (New_Msg));
+            begin
+               null;
+            end;
+         end if;
       end Send_To_Synth;
 
    begin

@@ -11,6 +11,7 @@
 -------------------------------------------------------------------------------
 
 with HAL; use HAL;
+with MIDI;
 
 package WNM.Looper is
 
@@ -25,6 +26,15 @@ package WNM.Looper is
    --  A bare MIDI status/data1/data2 triplet, with no time of its own: time
    --  is a separate field everywhere this is used, same split as the
    --  reference engine's LoopMidiEvent.atUs plus status/data1/data2.
+
+   function To_Loop_Event (Msg : MIDI.Message) return MIDI_Event;
+   function To_MIDI_Message (Event : MIDI_Event) return MIDI.Message;
+   --  MIDI.Message has an explicit representation clause matching the wire
+   --  format byte for byte (status, data1, data2), the same layout
+   --  MIDI_Event already is, so this is a straight reinterpretation, not a
+   --  real conversion. Sys messages (clock, start/stop, ...) never reach
+   --  here: nothing calls Capture with one, and nothing a looper track
+   --  holds should ever need To_MIDI_Message to produce one.
 
    type Emit_Proc is access procedure (Track : Loop_Track;
                                        At_Us : UInt32;

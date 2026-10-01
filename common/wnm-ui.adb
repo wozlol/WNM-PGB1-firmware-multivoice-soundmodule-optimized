@@ -32,6 +32,7 @@ with WNM.Audio_Routing;
 with WNM.Voices.Auto_Filter_FX;
 with WNM.Voices.Stutter_FX;
 with WNM.Mixer;
+with WNM.Looper;
 
 with HAL; use HAL;
 
@@ -182,12 +183,43 @@ package body WNM.UI is
                      GUI.Menu.Root.Push_Root_Window;
 
                   when Play =>
-                     Project.Step_Sequencer.Play_Pause;
+                     Project.Play_Pause_Dispatch;
 
                   when Rec =>
                      case Current_Input_Mode is
                         when Step_Mode | Track_Mode =>
                            Recording_On := not Recording_On;
+
+                           --  Simplified interim: arm/finish a plain
+                           --  (non-overdub) take on whichever loop track is
+                           --  currently selected, its length fixed to
+                           --  whatever bar count that track's column on the
+                           --  Looper tab is set to. Overdub, auto-track-
+                           --  advance and the rest of the AUT column's
+                           --  meaning are a later phase
+                           --  (LOOPER_MODE_PLAN.md P6).
+                           if Project.Sequencer_Mode =
+                             Project.Four_Track_Looper
+                           then
+                              if Recording_On then
+                                 WNM.Looper.Arm_Record
+                                   (WNM.Looper.Selected_Track,
+                                    Fixed_Length_Us =>
+                                      Project.Looper_Bars_To_Us
+                                        (Positive
+                                          (WNM.Looper.Bars
+                                            (WNM.Looper.Selected_Track))),
+                                    Overdub          => False);
+                              else
+                                 declare
+                                    Dummy : constant Boolean :=
+                                      WNM.Looper.Finish_Recording
+                                        (WNM.Time.Clock);
+                                 begin
+                                    null;
+                                 end;
+                              end if;
+                           end if;
                         when others =>
                            null;
                      end case;
