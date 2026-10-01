@@ -324,12 +324,16 @@ mode, a cosmetic gap for P6 rather than a safety one.
         notes 36-50.
       - Hold-current-division-then-tap-another temporary ratchet,
         recorded into the loop as real data on channels 2,3,4,8,9,10 only.
-      - Immediate note-off the instant the last held note on a channel is
-        released (right now the last sounded note keeps ringing until the
-        next division tick catches up to an empty held set, which could
-        be a noticeable, musically wrong delay at slow divisions).
       - Persisting per-channel style/division/octave settings with the
         project (P10's Looper_Section does not touch these yet).
+
+      Fixed after the above was first committed: immediate note-off the
+      instant a channel's last held note releases, rather than ringing
+      until the next division tick noticed the held set had emptied.
+      Arp_Note_Off takes an optional Arp_Emit_Proc now (null keeps the old
+      behavior); Send_To_Synth passes Arp_Emit, forward-declared near the
+      top of wnm-project.adb since Handle_MIDI, which needs it, comes
+      before Arp_Emit's own body in the file.
 - [ ] P6: Play/Edit/Song/Pattern/Copy button remap for Looper mode.
 - [ ] P7: Stutter (rolling-history based, arpnmidi gospel) and dub delay
       (echo-engine based) sidecars under a held Step button.

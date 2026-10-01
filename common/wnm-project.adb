@@ -37,6 +37,15 @@ package body WNM.Project is
    is new Project_Load_Broadcast.Register (Project_Load_Callback'Access);
    pragma Unreferenced (Project_Load_Listener);
 
+   procedure Arp_Emit (Channel  : WNM.Looper.Arp_Channel;
+                       Key      : MIDI.MIDI_Key;
+                       Velocity : MIDI.MIDI_Data;
+                       Note_On  : Boolean);
+   --  Forward declared so Handle_MIDI, earlier in this file, can pass
+   --  Arp_Emit'Access to Arp_Note_Off for its immediate-silence-on-
+   --  release behavior. Body is down with the rest of the Looper/Arp
+   --  glue, near MIDI_Clock_Tick_Dispatch.
+
    -------------
    -- Do_Copy --
    -------------
@@ -2385,7 +2394,8 @@ package body WNM.Project is
                   WNM.Looper.Arp_Note_On (New_Msg.Chan, New_Msg.Key,
                                          New_Msg.Velocity);
                else
-                  WNM.Looper.Arp_Note_Off (New_Msg.Chan, New_Msg.Key);
+                  WNM.Looper.Arp_Note_Off (New_Msg.Chan, New_Msg.Key,
+                                          Arp_Emit'Access);
                end if;
             else
                WNM.Coproc.Push_To_Synth ((Kind => MIDI_Event,

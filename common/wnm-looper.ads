@@ -305,26 +305,34 @@ package WNM.Looper is
    --  would already be sounding, one octave down or up (clamped to the
    --  MIDI note range rather than wrapping).
 
+   type Arp_Emit_Proc is access procedure (Channel  : Arp_Channel;
+                                           Key      : MIDI.MIDI_Key;
+                                           Velocity : MIDI.MIDI_Data;
+                                           Note_On  : Boolean);
+
    procedure Arp_Note_On (Channel  : Arp_Channel;
                           Key      : MIDI.MIDI_Key;
                           Velocity : MIDI.MIDI_Data);
-   procedure Arp_Note_Off (Channel : Arp_Channel; Key : MIDI.MIDI_Key);
+   procedure Arp_Note_Off (Channel : Arp_Channel; Key : MIDI.MIDI_Key;
+                           Emit    : Arp_Emit_Proc := null);
    --  Feeds the held-note set the stepper below walks. Whether a given
    --  Note_On/Off even reaches here instead of going straight to the
    --  synth is the caller's decision (Arp_Style (Channel) /= Arp_Off),
    --  not this engine's: it has no opinion on anything but the channels
    --  that are actually armed.
+   --
+   --  Arp_Note_Off's Emit, if given, is called to silence whatever this
+   --  channel was last sounding the instant its last held note is
+   --  released, rather than leaving it ringing until Arp_Tick's next
+   --  step happens to notice the held set emptied out (which could be a
+   --  noticeable delay at a slow division). Passing null keeps the old
+   --  behavior.
 
    procedure Arp_Reset (Channel : Arp_Channel);
    --  Drops all held notes and silences the channel without sending the
    --  note-offs itself (the caller, which still knows what was last
    --  emitted, is responsible for that). Used when a style or channel
    --  selection changes out from under held notes.
-
-   type Arp_Emit_Proc is access procedure (Channel  : Arp_Channel;
-                                           Key      : MIDI.MIDI_Key;
-                                           Velocity : MIDI.MIDI_Data;
-                                           Note_On  : Boolean);
 
    procedure Arp_Tick (Now_Us : UInt64; Beat_Us : UInt32;
                        Emit   : Arp_Emit_Proc);

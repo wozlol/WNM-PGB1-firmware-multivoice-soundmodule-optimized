@@ -1571,9 +1571,32 @@ package body WNM.Looper is
    -- Arp_Note_Off   --
    --------------------
 
-   procedure Arp_Note_Off (Channel : Arp_Channel; Key : MIDI.MIDI_Key) is
+   procedure Arp_Note_Off (Channel : Arp_Channel; Key : MIDI.MIDI_Key;
+                           Emit    : Arp_Emit_Proc := null)
+   is
+      State : Arp_Channel_State renames Overlay_Ptr.Arp (Channel);
+      Any_Held : Boolean := False;
    begin
-      Arp_Table_Clear (Overlay_Ptr.Arp (Channel).Held, Key);
+      Arp_Table_Clear (State.Held, Key);
+
+      if Emit = null then
+         return;
+      end if;
+
+      for E of State.Held loop
+         Any_Held := Any_Held or else E.Used;
+      end loop;
+
+      if not Any_Held then
+         --  That was the last held note: silence it now rather than
+         --  waiting for Arp_Tick's next step to notice.
+         for E of State.Sounding loop
+            if E.Used then
+               Emit (Channel, E.Key, E.Velocity, False);
+               E.Used := False;
+            end if;
+         end loop;
+      end if;
    end Arp_Note_Off;
 
    ------------------
