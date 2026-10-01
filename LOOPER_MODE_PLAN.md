@@ -334,9 +334,44 @@ mode, a cosmetic gap for P6 rather than a safety one.
       behavior); Send_To_Synth passes Arp_Emit, forward-declared near the
       top of wnm-project.adb since Handle_MIDI, which needs it, comes
       before Arp_Emit's own body in the file.
-- [ ] P6: Play/Edit/Song/Pattern/Copy button remap for Looper mode.
-- [ ] P7: Stutter (rolling-history based, arpnmidi gospel) and dub delay
-      (echo-engine based) sidecars under a held Step button.
+- [~] P6: Play and Edit are remapped. Song, Pattern and Copy are not.
+      - Edit is the bottom-right button the firmware enum calls `Rec`.
+        Tap toggles keyboard mode and it stays, hold is momentary like
+        the Track button, hold Edit and press Play clears the selected
+        loop track. `Edit_Button_State` in `wnm-ui.adb` tracks
+        Held/Momentary/Was_Modifier, packed, so a hold used as a
+        modifier does not also fire the tap action on release.
+      - Play follows the full state table from the spec, decided inside
+        `Play_Tap` in the engine rather than in the UI: cleared arms,
+        armed unarms, stopped plays, playing toggles overdub,
+        overdubbing stops overdubbing and keeps playing. A second tap
+        within 350 ms acts on the state the first tap saw, giving stop
+        while playing, clear while stopped, undo while cleared.
+      - Holding Play still means BPM and volume on the arrows, and a
+        hold no longer counts as a tap when released.
+      - OG Sequencer keeps its original behavior on both buttons.
+      - Not built: Song to mute/unmute with chainable blocks, Pattern to
+        per-track stutter/dub-delay, and the Copy button decision.
+- [x] P7: Stutter and dub delay, under a held Step button.
+      - Stutter is ported from `rolling_history.cpp`'s RollingHistory and
+        HistoryRepeater. Everything that sounds goes through
+        `History_Push` into a 128-entry ring, pads 1-8 snapshot the last
+        N microseconds and loop that window for as long as the pad is
+        held, momentary. Divisions are the spec's eight
+        (1, 1/2, 1/4, 2T, 1/8, 4T, 1/16, 1/32) in
+        `Stutter_Division_Kind`.
+      - The reference's replay cursor is kept rather than simplified
+        away, and `History_Push` is frozen while a stutter runs, so a
+        stutter cannot re-record its own output and drift.
+      - Repeated Note Ons retrigger (off then on) instead of being
+        skipped, matching the reference. Skipping them collapsed
+        repeated drum hits, which an earlier version did.
+      - Dub delay is modeled on `echo_engine.h`: pads 9-16 latch, three
+        repeats per note at roughly 60/36/21% of the source velocity,
+        on the standard divisions.
+      - `Clear_Effects` silences anything either one left sounding, and
+        `Looper_Silence_Effects` is called on a mode switch so an FX
+        tail cannot outlive the mode it belongs to.
 - [ ] P8: Channel 10 special notes 36-50.
 - [ ] P9: Multi-select-while-holding-a-track-button, hat REL-while-held
       trick, chromatic-pulse-while-held trick.
