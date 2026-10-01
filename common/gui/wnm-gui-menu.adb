@@ -22,6 +22,7 @@
 with WNM.GUI.Menu.Track_Settings;
 with WNM.GUI.Menu.Pattern_Settings;
 with WNM.GUI.Menu.Step_Settings;
+with WNM.GUI.Menu.Looper_Settings;
 with WNM.GUI.Menu.Chord_Settings;
 with WNM.GUI.Menu.Sample_Edit;
 
@@ -42,6 +43,8 @@ package body WNM.GUI.Menu is
       case Kind is
          when Step_Menu =>
             GUI.Menu.Step_Settings.Push_Window;
+         when Looper_Menu =>
+            GUI.Menu.Looper_Settings.Push_Window;
          when Track_Menu =>
             GUI.Menu.Track_Settings.Push_Window;
          when Pattern_Menu =>

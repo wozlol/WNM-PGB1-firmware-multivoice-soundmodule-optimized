@@ -243,17 +243,30 @@ package body WNM.UI is
 
                   when Keyboard_Button =>
 
-                     --  On_Press reads and writes Tracks/Patterns/Steps
-                     --  directly (step entry, trigger toggling, step
-                     --  preview), which in Four_Track_Looper mode is the
-                     --  loop event pool's own storage. The Looper's own
-                     --  keypad handling is a later phase
-                     --  (LOOPER_MODE_PLAN.md P6), not built yet, so for
-                     --  now a keypad press in that mode does nothing
-                     --  rather than corrupting the loop data.
+                     --  Step_Sequencer.On_Press reads and writes
+                     --  Tracks/Patterns/Steps directly (step entry,
+                     --  trigger toggling, step preview, per-step CC
+                     --  overrides), which in Four_Track_Looper mode is the
+                     --  loop event pool's own storage, so that mode has
+                     --  its own handlers instead.
                      if Project.Sequencer_Mode = Project.OG_Sequencer then
                         Project.Step_Sequencer.On_Press
                           (B, Current_Input_Mode);
+
+                     elsif Chroma_Keyboard_On then
+                        --  Playing notes. Note Off comes on release, not
+                        --  after a fixed duration, so the arp and the
+                        --  loop both get the real length of the note.
+                        Project.Looper_Keyboard_Press (B);
+
+                     elsif Current_Input_Mode = Step_Mode then
+                        --  The spec's LiveArp surface: 1-6 styles, 7-8
+                        --  octave down/up, 9-16 divisions.
+                        Project.Looper_Arp_Pad (B);
+
+                     else
+                        --  Track mode: pick the instrument.
+                        Project.Looper_Track_Select (B);
                      end if;
 
                   when others =>
@@ -317,6 +330,13 @@ package body WNM.UI is
                         --  A plain tap (not a hold, not the Edit+Play
                         --  combo already handled on press).
                         Project.Looper_Play_Tap;
+                     end if;
+
+                  when Keyboard_Button =>
+                     if Project.Sequencer_Mode /= Project.OG_Sequencer
+                       and then Chroma_Keyboard_On
+                     then
+                        Project.Looper_Keyboard_Release (B);
                      end if;
 
                   when others =>
@@ -416,59 +436,20 @@ package body WNM.UI is
                   if Evt = On_Release then
                      if Project.Sequencer_Mode = Project.Four_Track_Looper
                      then
-                        --  Step_Menu reads Steps directly, which in this
-                        --  mode is the loop event pool's own storage, so
-                        --  it cannot open here. The real LiveArp control
-                        --  surface from the spec (the 16-button grid,
-                        --  divisions, channel 10 sidecar, ratchet
-                        --  recording) is a later phase
-                        --  (LOOPER_MODE_PLAN.md P5), not built yet. As a
-                        --  placeholder that is at least testable tonight:
-                        --  cycle the selected track's arp style. Chord
-                        --  never arps per the spec, so its track is left
-                        --  alone here even though WNM.Looper would just
-                        --  ignore a style set on it anyway (Send_To_Synth
-                        --  excludes Chord_Channel outright).
-                        if not Select_Done
-                          and then Project.Editing_Track in
-                            Tracks (WNM.Looper.Arp_Channel'First) ..
-                              Tracks (WNM.Looper.Arp_Channel'Last)
-                        then
-                           --  Select_Done means a pad was used while Step
-                           --  was held (the stutter/delay surface above),
-                           --  so this was not a bare double tap on Step.
-                           declare
-                              use type WNM.Looper.Arp_Style_Kind;
-                              use type MIDI.MIDI_Channel;
-                              Channel : constant WNM.Looper.Arp_Channel :=
-                                WNM.Looper.Arp_Channel
-                                  (MIDI.MIDI_Channel (Project.Editing_Track));
-                           begin
-                              if Channel /= WNM.Synth.Chord_Channel then
-                                 declare
-                                    Current : constant
-                                      WNM.Looper.Arp_Style_Kind :=
-                                        WNM.Looper.Arp_Style (Channel);
-                                 begin
-                                    WNM.Looper.Set_Arp_Style
-                                      (Channel,
-                                       (if Current =
-                                          WNM.Looper.Arp_Style_Kind'Last
-                                        then WNM.Looper.Arp_Style_Kind'First
-                                        else WNM.Looper.Arp_Style_Kind'Succ
-                                          (Current)));
-                                 end;
-                              end if;
-                           end;
+                        if Select_Done then
+                           --  A pad was used while Step was held, so this
+                           --  release just ends the FX surface.
+                           Current_Input_Mode := Last_Main_Mode;
+                        else
+                           --  A tap opens the Looper screens. Step_Settings
+                           --  reads Steps directly, which is the loop event
+                           --  pool in this mode, so Looper_Menu takes its
+                           --  place: the track grid, the LiveArp readout and
+                           --  the button reference.
+                           Current_Input_Mode := Step_Mode;
+                           GUI.Menu.Open (GUI.Menu.Looper_Menu);
+                           Last_Main_Mode := Current_Input_Mode;
                         end if;
-
-                        --  Same as the Select_Done branch below: a tap
-                        --  of Step either picks a step index or, as here,
-                        --  does this mode's own thing, and either way the
-                        --  second press returns to whatever was showing
-                        --  before, it never opens a sub-screen in this
-                        --  mode.
-                        Current_Input_Mode := Last_Main_Mode;
 
                      elsif Select_Done then
                         --  Go back a main mode
@@ -764,8 +745,17 @@ package body WNM.UI is
           when others => False);
 
    Last_State    : WNM_HAL.Buttons_State := (others => Up);
-   Long_Press_Deadline : array (Button) of WNM.Time.Time_Microseconds :=
-     (others => WNM.Time.Time_Microseconds'Last);
+
+   subtype Long_Press_Button is Button range Rec .. PAD_Right;
+   --  Every button Has_Long_Press answers True for (Rec, Play and the
+   --  four arrows) falls inside this range. Indexed by it rather than by
+   --  Button because the deadline is a 64-bit timestamp: all of Button
+   --  would be 240 bytes to hold six live entries, and this firmware is
+   --  at its RAM ceiling (see LOOPER_MODE_PLAN.md).
+   Long_Press_Deadline :
+     array (Long_Press_Button) of WNM.Time.Time_Microseconds :=
+       (others => WNM.Time.Time_Microseconds'Last);
+
    Last_Event    : array (Button) of Button_Event := (others => On_Release);
 
    ------------
@@ -784,7 +774,9 @@ package body WNM.UI is
          if Last_State (B) = State (B) then
             --  The button didn't change, let's check if we are waiting for
             --  a long press event.
-            if Has_Long_Press (B)
+            if B in Long_Press_Button
+              and then
+                Has_Long_Press (B)
               and then
                 State (B) = Down
               and then
@@ -805,7 +797,7 @@ package body WNM.UI is
          elsif State (B) = Down then
             --  Button was justed pressed
 
-            if Has_Long_Press (B) then
+            if B in Long_Press_Button and then Has_Long_Press (B) then
                --  If this button has long press event we don't signal the
                --  On_Press right now, but we record the time at wich it was
                --  pressed.
@@ -891,6 +883,54 @@ package body WNM.UI is
       LEDs.Turn_On (B7);
    end LEDs_Chroma_Keyboard;
 
+   -----------------------
+   -- LEDs_LiveArp_Grid --
+   -----------------------
+
+   procedure LEDs_LiveArp_Grid is
+      use type WNM.Looper.Arp_Style_Kind;
+   begin
+      if not Project.Looper_Arp_Available then
+         --  Chord never arps, and a MIDI-out track has no instance, so
+         --  there is nothing on the grid to show or change.
+         return;
+      end if;
+
+      declare
+         Chan : constant WNM.Looper.Arp_Channel :=
+           WNM.Looper.Arp_Channel (Project.Looper_Arp_Channel);
+         Style : constant WNM.Looper.Arp_Style_Kind :=
+           WNM.Looper.Arp_Style (Chan);
+      begin
+         --  Styles: Arp_Style_Kind'First is Arp_Off, so the six playable
+         --  ones are Pos 1 .. 6 and land on pads 1 .. 6.
+         if Style /= WNM.Looper.Arp_Off then
+            LEDs.Turn_On
+              (To_Button
+                 (Keyboard_Value (WNM.Looper.Arp_Style_Kind'Pos (Style))),
+               LEDs.Track);
+         end if;
+
+         --  Octave toggles.
+         if WNM.Looper.Arp_Octave_Down (Chan) then
+            LEDs.Turn_On (B7, LEDs.Pattern);
+         end if;
+         if WNM.Looper.Arp_Octave_Up (Chan) then
+            LEDs.Turn_On (B8, LEDs.Pattern);
+         end if;
+
+         --  Divisions on 9 .. 16, only worth showing once a style is on.
+         if Style /= WNM.Looper.Arp_Off then
+            LEDs.Turn_On
+              (To_Button
+                 (Keyboard_Value
+                    (9 + WNM.Looper.Arp_Division_Kind'Pos
+                       (WNM.Looper.Arp_Division (Chan)))),
+               LEDs.Step);
+         end if;
+      end;
+   end LEDs_LiveArp_Grid;
+
    -----------------
    -- Update_LEDs --
    -----------------
@@ -934,14 +974,33 @@ package body WNM.UI is
 
       LEDs.Turn_Off_All;
 
-      -- Rec LED --
-      if Recording then
-         LEDs.Turn_On (Rec, LEDs.Recording);
-      end if;
+      if Project.Sequencer_Mode /= Project.OG_Sequencer then
+         -- Rec LED: the keyboard toggle, which is what Edit does here --
+         if Chroma_Keyboard_On then
+            LEDs.Turn_On (Rec, LEDs.Track);
+         end if;
 
-      -- Play LED --
-      if WNM.MIDI_Clock.Running and then Beat_Step then
-         LEDs.Turn_On (Play, LEDs.Play);
+         -- Play LED: steady while playing, blinking while recording --
+         if WNM.Looper.Recording or else WNM.Looper.Overdubbing then
+            LEDs.Turn_On (Play, LEDs.Recording);
+         elsif WNM.Looper.Recording_Armed then
+            if Select_Blink then
+               LEDs.Turn_On (Play, LEDs.Recording);
+            end if;
+         elsif WNM.Looper.Playing then
+            LEDs.Turn_On (Play, LEDs.Play);
+         end if;
+
+      else
+         -- Rec LED --
+         if Recording then
+            LEDs.Turn_On (Rec, LEDs.Recording);
+         end if;
+
+         -- Play LED --
+         if WNM.MIDI_Clock.Running and then Beat_Step then
+            LEDs.Turn_On (Play, LEDs.Play);
+         end if;
       end if;
 
       --  The FX LED is on if there's at least one FX enabled
@@ -1013,8 +1072,27 @@ package body WNM.UI is
 
             -- Step select mode --
          when Step_Select =>
-            LEDs.Set_Hue (LEDs.Step);
-            LEDs.Turn_On (To_Button (Project.Editing_Step));
+            if Project.Sequencer_Mode /= Project.OG_Sequencer then
+               --  Step held is the FX surface here: 1-8 stutter
+               --  (momentary), 9-16 dub delay (latching).
+               LEDs.Set_Hue (LEDs.FX);
+               if WNM.Looper.Delay_Active then
+                  LEDs.Turn_On
+                    (To_Button
+                       (Keyboard_Value
+                          (9 + WNM.Looper.Arp_Division_Kind'Pos
+                             (WNM.Looper.Delay_Division))));
+               end if;
+               if WNM.Looper.Stutter_Active and then Select_Blink then
+                  --  Which of the eight it is lives inside the engine, so
+                  --  the Step button itself carries "a stutter is running"
+                  --  rather than guessing a pad.
+                  LEDs.Turn_On (Step_Button, LEDs.FX);
+               end if;
+            else
+               LEDs.Set_Hue (LEDs.Step);
+               LEDs.Turn_On (To_Button (Project.Editing_Step));
+            end if;
 
             -- Track assign mode --
          when Track_Select =>
@@ -1185,15 +1263,11 @@ package body WNM.UI is
                if Chroma_Keyboard_On then
                   LEDs_Chroma_Keyboard;
                elsif Project.Sequencer_Mode /= Project.OG_Sequencer then
-                  --  Reaching Step_Mode at all in Four_Track_Looper mode
-                  --  should not happen (the Step button bounces back
-                  --  instead of entering it, see the Step_Select handling
-                  --  above), but Current_Input_Mode can already be
-                  --  Step_Mode from before a mode switch, so this is
-                  --  checked here too rather than only relied on there.
-                  --  Everything below reads Steps directly, which in this
-                  --  mode is the loop event pool's own storage.
-                  null;
+                  --  The LiveArp grid, matching Looper_Arp_Pad: 1-6 are
+                  --  the styles, 7-8 the octave toggles, 9-16 the
+                  --  divisions. Everything in the OG branch below reads
+                  --  Steps directly, which is the loop event pool here.
+                  LEDs_LiveArp_Grid;
                else
 
                   if Recording then

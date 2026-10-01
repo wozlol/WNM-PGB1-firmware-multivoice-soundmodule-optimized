@@ -342,6 +342,13 @@ package body WNM.Looper is
       Arp       : Arp_Channel_Array;
       Arp_Seed  : UInt32;
 
+      --  The Looper menu's cursor. Here with the rest of the looper state
+      --  rather than as fields on the menu window, for the same reason
+      --  everything else in this record is: a menu window's own fields
+      --  are permanent RAM, and this firmware has none spare.
+      Menu_Tab_Val    : Menu_Tab_Id;
+      Menu_Column_Val : Menu_Column_Id;
+
       FX : Effects_State;
       --  A plain LCG seed for Arp_Random, not anything cryptographic:
       --  just needs to not repeat obviously over a few bars.
@@ -456,6 +463,8 @@ package body WNM.Looper is
       Overlay_Ptr.Is_Overdubbing := False;
       Overlay_Ptr.Record_Start_Count := 0;
       Overlay_Ptr.Auto_Setting := Auto_Off;
+      Overlay_Ptr.Menu_Tab_Val := Menu_Tab_Id'First;
+      Overlay_Ptr.Menu_Column_Val := Menu_Column_Id'First;
       Overlay_Ptr.Play_Tap_Us := 0;
       Overlay_Ptr.Play_Tap_Track := Loop_Track'First;
       Overlay_Ptr.Play_Tap_Icon := Empty;
@@ -1680,6 +1689,30 @@ package body WNM.Looper is
       Overlay_Ptr.Auto_Setting := Setting;
    end Set_Auto_Setting;
 
+   --------------
+   -- Menu_Tab --
+   --------------
+
+   function Menu_Tab return Menu_Tab_Id
+   is (Overlay_Ptr.Menu_Tab_Val);
+
+   procedure Set_Menu_Tab (T : Menu_Tab_Id) is
+   begin
+      Overlay_Ptr.Menu_Tab_Val := T;
+   end Set_Menu_Tab;
+
+   -----------------
+   -- Menu_Column --
+   -----------------
+
+   function Menu_Column return Menu_Column_Id
+   is (Overlay_Ptr.Menu_Column_Val);
+
+   procedure Set_Menu_Column (C : Menu_Column_Id) is
+   begin
+      Overlay_Ptr.Menu_Column_Val := C;
+   end Set_Menu_Column;
+
    ------------------------------------------------------------------------
    --  LiveArp
    ------------------------------------------------------------------------
@@ -1800,9 +1833,22 @@ package body WNM.Looper is
    -- Arp_Reset    --
    ------------------
 
-   procedure Arp_Reset (Channel : Arp_Channel) is
+   procedure Arp_Reset (Channel : Arp_Channel;
+                        Emit    : Arp_Emit_Proc := null)
+   is
       State : Arp_Channel_State renames Overlay_Ptr.Arp (Channel);
    begin
+      if Emit /= null then
+         --  Whatever this channel last stepped to is still sounding, and
+         --  the arp is the only thing that knows it sent those Note Ons,
+         --  so they have to go out before the table is dropped.
+         for E of State.Sounding loop
+            if E.Used then
+               Emit (Channel, E.Key, E.Velocity, False);
+            end if;
+         end loop;
+      end if;
+
       State.Held := (others => <>);
       State.Sounding := (others => <>);
       State.Step_Index := 0;

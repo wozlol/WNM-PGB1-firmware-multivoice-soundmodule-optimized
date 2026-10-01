@@ -2,7 +2,7 @@
 --                                                                           --
 --                              Wee Noise Maker                              --
 --                                                                           --
---                     Copyright (C) 2022 Fabien Chouteau                    --
+--                  Copyright (C) 2016-2021 Fabien Chouteau                  --
 --                                                                           --
 --    Wee Noise Maker is free software: you can redistribute it and/or       --
 --    modify it under the terms of the GNU General Public License as         --
@@ -19,41 +19,42 @@
 --                                                                           --
 -------------------------------------------------------------------------------
 
-with WNM.UI;
-with MIDI.Time;
+with WNM.Looper;
 
-package WNM.Project.Step_Sequencer is
+package WNM.GUI.Menu.Looper_Settings is
 
-   function Playing_Step (T : Tracks) return Playhead;
-
-   procedure Play_Pause;
-   --  Use it to signal a play/pause event
-
-   procedure On_Press (Button : Keyboard_Button;
-                       Mode : WNM.UI.Main_Modes);
-
-   procedure MIDI_Clock_Tick (Step : MIDI.Time.Step_Count);
-
-   function Keyboard_Octave return Octave_Offset;
-   procedure Set_Keyboard_Octave (O : Octave_Offset);
-
-   function Keyboard_Key (Button : Keyboard_Button;
-                          T      : Tracks) return MIDI.MIDI_Key;
-   --  The note this pad plays on the chromatic keyboard layout, with both
-   --  the current keyboard octave and the track's own octave offset
-   --  already applied, exactly as playing a pad in Track mode does. B1,
-   --  B4 and B8 are that layout's octave controls and have no note of
-   --  their own, so they answer C4. Exposed so Looper mode plays the same
-   --  layout from its own keypad handling instead of repeating the
-   --  mapping.
+   procedure Push_Window;
+   --  What the Step button opens in Four_Track_Looper mode, in place of
+   --  Step_Settings. The first tab is the five-column loop track editor,
+   --  the second reads back the selected track's LiveArp state (which the
+   --  sixteen pads change from here), and the last two are the button
+   --  reference, unheld then held.
 
 private
 
-   Current_Playing_Step : Sequencer_Steps := Sequencer_Steps'First with Atomic;
+   type Top_Settings is (Tracks_Tab, Arp_Tab, Buttons_Tab, Held_Tab);
+   function Top_Settings_Count is new Enum_Count (Top_Settings);
 
-   --  Current_Seq_State : Sequencer_State := Pause with Atomic;
-   Current_Track     : Tracks := Tracks'First with Atomic;
+   subtype Column_Id is WNM.Looper.Menu_Column_Id;
+   --  Four loop tracks then AUT, the five columns from the spec.
 
-   procedure Execute_Step;
+   type Looper_Settings_Menu is new Menu_Window with null record;
+   --  No state of its own: the tab and column live in WNM.Looper's Steps
+   --  overlay, so this window costs only its tag. Fields here would be
+   --  permanent RAM in both modes and there is none spare.
 
-end WNM.Project.Step_Sequencer;
+   overriding
+   procedure Draw (This : in out Looper_Settings_Menu);
+
+   overriding
+   procedure On_Event (This  : in out Looper_Settings_Menu;
+                       Event : Menu_Event);
+
+   overriding
+   procedure On_Pushed (This  : in out Looper_Settings_Menu);
+
+   overriding
+   procedure On_Focus (This       : in out Looper_Settings_Menu;
+                       Exit_Value : Window_Exit_Value);
+
+end WNM.GUI.Menu.Looper_Settings;

@@ -56,7 +56,6 @@ package body WNM.GUI.Menu.Root is
    is (case Item is
           when Projects        => "Projects",
           when Sequencer_Mode_Select => "Sequencer Mode",
-          when Looper_Config   => "Looper Tracks",
           when Tracks_Mixer    => "Project Mixer",
           when Inputs          => "Inputs Settings",
           when User_Waveform   => "Custom Waveform",
@@ -166,12 +165,17 @@ package body WNM.GUI.Menu.Root is
 
       Left_X  : constant Natural := Box_Left + Box_Width / 4;
       Right_X : constant Natural := Box_Right - Box_Width / 4;
-      Icon_Y  : constant Natural := Box_Center.Y - 3 - (loop_icon.Data.H / 2);
-      Label_Y : constant Natural := Box_Bottom - Bitmap_Fonts.Height - 2;
+      Icon_Y  : constant Natural := Box_Top + 4;
 
-      procedure Centered_Str (Center_X : Natural; Str : String) is
+      --  Two label rows under the icons: neither name fits on one line at
+      --  half the screen width, and a 23px wide icon plus two 7px rows is
+      --  what the box has room for.
+      Label_Y   : constant Natural := Box_Bottom - 2 * Bitmap_Fonts.Height - 4;
+      Label_Y_2 : constant Natural := Label_Y + Bitmap_Fonts.Height + 1;
+
+      procedure Centered_Str (Center_X, Y : Natural; Str : String) is
       begin
-         Draw_Str (Center_X - (Str'Length * Font_Width) / 2, Label_Y, Str);
+         Draw_Str (Center_X - (Str'Length * Font_Width) / 2, Y, Str);
       end Centered_Str;
 
       Active : constant WNM.Project.Sequencer_Mode_Kind :=
@@ -181,10 +185,13 @@ package body WNM.GUI.Menu.Root is
                          Left_X - loop_icon.Data.W / 2, Icon_Y);
       Screen.Copy_Bitmap (Sequencer_Grid_Icon,
                          Right_X - Sequencer_Grid_Icon.W / 2,
-                         Box_Center.Y - 3 - Sequencer_Grid_Icon.H / 2);
+                         Icon_Y + loop_icon.Data.H / 2
+                           - Sequencer_Grid_Icon.H / 2);
 
-      Centered_Str (Left_X, "4-Track Looper");
-      Centered_Str (Right_X, "OG Sequencer");
+      Centered_Str (Left_X, Label_Y, "4-Track");
+      Centered_Str (Left_X, Label_Y_2, "Looper");
+      Centered_Str (Right_X, Label_Y, "OG");
+      Centered_Str (Right_X, Label_Y_2, "Sequencer");
 
       --  A box around whichever side is the live mode, same device as the
       --  Yes/No dialog's own selection box.
@@ -194,198 +201,13 @@ package body WNM.GUI.Menu.Root is
                             loop_icon.Data.W + 6, loop_icon.Data.H + 6));
       else
          Screen.Draw_Rect (((Right_X - Sequencer_Grid_Icon.W / 2 - 3,
-                             Box_Center.Y - 3 - Sequencer_Grid_Icon.H / 2
-                               - 3),
+                             Icon_Y + loop_icon.Data.H / 2
+                               - Sequencer_Grid_Icon.H / 2 - 3),
                             Sequencer_Grid_Icon.W + 6,
                             Sequencer_Grid_Icon.H + 6));
       end if;
    end Draw_Sequencer_Mode_Icons;
 
-   -----------------------
-   -- Looper_Column_X   --
-   -----------------------
-
-   Looper_AUT_Column : constant Looper_Column_Id := 5;
-
-   function Looper_Column_X (Col : Looper_Column_Id) return Natural
-   is (Box_Left + 12 + Natural (Col - 1) * 24);
-   --  5 columns, 24px apart, scaled down from the Preferences tab's 4
-   --  columns at 32px.
-
-   ------------------------
-   -- Draw_Track_Icon    --
-   ------------------------
-
-   --  Small hand-drawn glyphs rather than bitmaps: these react to live
-   --  engine state (which track is recording right now), so a fixed
-   --  bitmap per shape plus Set_Pixel-level control over exactly which one
-   --  is showing is simpler than four more generated icon files.
-   procedure Draw_Track_Icon (Icon : WNM.Looper.Track_Icon; Cx, Cy : Natural)
-   is
-      R : constant := 4;
-   begin
-      case Icon is
-         when WNM.Looper.Empty =>
-            null;
-
-         when WNM.Looper.Stopped =>
-            --  Hollow square: has content, not currently sounding.
-            Screen.Draw_Rect (((Cx - R, Cy - R), 2 * R, 2 * R));
-
-         when WNM.Looper.Playing_Icon =>
-            --  Filled triangle, pointing right.
-            for Dy in 0 .. 2 * R loop
-               declare
-                  Half_Width : constant Natural :=
-                    (if Dy <= R then Dy else 2 * R - Dy);
-               begin
-                  Screen.Draw_H_Line (Cx - R, Cx - R + Half_Width,
-                                      Cy - R + Dy);
-               end;
-            end loop;
-
-         when WNM.Looper.Armed =>
-            --  Hollow circle: armed, waiting for the next note to start.
-            Screen.Draw_Circle ((Cx, Cy), R);
-
-         when WNM.Looper.Recording_Icon =>
-            --  Filled circle: actively recording or overdubbing. Plain
-            --  integer search rather than a real sqrt: R is always 4, so
-            --  this is at most 4 iterations.
-            for Dy in -R .. R loop
-               declare
-                  Limit  : constant Natural := R * R - Dy * Dy;
-                  Dx_Max : Natural := 0;
-               begin
-                  while (Dx_Max + 1) * (Dx_Max + 1) <= Limit loop
-                     Dx_Max := Dx_Max + 1;
-                  end loop;
-                  Screen.Draw_H_Line (Cx - Dx_Max, Cx + Dx_Max, Cy + Dy);
-               end;
-            end loop;
-      end case;
-   end Draw_Track_Icon;
-
-   -------------------------
-   -- Draw_Looper_Config  --
-   -------------------------
-
-   procedure Draw_Looper_Config (Column : Looper_Column_Id) is
-      use WNM.Looper;
-
-      Icon_Y  : constant Natural := Box_Top + 16;
-      Bars_Y  : constant Natural := Box_Top + 26;
-      Label_Y : constant Natural := Box_Bottom - Font_Height - 2;
-   begin
-      if Column = Looper_AUT_Column then
-         Draw_Title ("Auto Setting", "");
-      else
-         Draw_Title
-           ("Track" & Loop_Track'Image (Loop_Track (Column)), "");
-      end if;
-
-      for Col in Looper_Column_Id loop
-         declare
-            Cx       : constant Natural := Looper_Column_X (Col);
-            Selected : constant Boolean := Col = Column;
-         begin
-            if Col = Looper_AUT_Column then
-               Draw_Str (Cx - 3 * Font_Width, Bars_Y, Img (Auto_Setting));
-               Draw_Value_Pos ("AUT", Cx, Selected);
-            else
-               declare
-                  Track : constant Loop_Track := Loop_Track (Col);
-               begin
-                  Draw_Track_Icon (Icon (Track), Cx, Icon_Y);
-                  Draw_Str (Cx - Font_Width, Bars_Y,
-                           Bar_Count'Image (Bars (Track)));
-                  Draw_Value_Pos (Img (Quantize (Track)), Cx, Selected);
-               end;
-            end if;
-         end;
-      end loop;
-
-      Draw_Str_Center (Label_Y - Font_Height - 2,
-                       "Up/Down bars, A quantize");
-   end Draw_Looper_Config;
-
-   -------------------------
-   -- Looper_Config_Event --
-   -------------------------
-
-   procedure Looper_Config_Event (Column : in out Looper_Column_Id;
-                                  Event  :        Menu_Event)
-   is
-      use WNM.Looper;
-
-      procedure Sync_Selected_Track is
-      begin
-         --  Arm_Record always arms WNM.Looper.Selected_Track, and this is
-         --  the only place anything picks which track that is: there is
-         --  no dedicated track-select button for this mode yet (that is
-         --  part of the fuller button remap, LOOPER_MODE_PLAN.md P6), so
-         --  for now landing on a track column here is what decides what
-         --  the next Rec press arms.
-         if Column /= Looper_AUT_Column then
-            Select_Track (Loop_Track (Column));
-         end if;
-      end Sync_Selected_Track;
-   begin
-      case Event.Kind is
-         when Right_Press =>
-            Column :=
-              (if Column = Looper_Column_Id'Last then Looper_Column_Id'First
-               else Column + 1);
-            Sync_Selected_Track;
-
-         when Left_Press =>
-            Column :=
-              (if Column = Looper_Column_Id'First then Looper_Column_Id'Last
-               else Column - 1);
-            Sync_Selected_Track;
-
-         when Up_Press =>
-            if Column /= Looper_AUT_Column then
-               declare
-                  Track : constant Loop_Track := Loop_Track (Column);
-                  Current : constant Bar_Count := Bars (Track);
-               begin
-                  if Current /= Bar_Count'Last then
-                     --  Does not yet resize the running engine, only
-                     --  records the chosen bar count (see WNM.Looper.
-                     --  Set_Bars).
-                     Set_Bars (Track, Current + 1, 0, null);
-                  end if;
-               end;
-            end if;
-
-         when Down_Press =>
-            if Column /= Looper_AUT_Column then
-               declare
-                  Track : constant Loop_Track := Loop_Track (Column);
-                  Current : constant Bar_Count := Bars (Track);
-               begin
-                  if Current /= Bar_Count'First then
-                     Set_Bars (Track, Current - 1, 0, null);
-                  end if;
-               end;
-            end if;
-
-         when A_Press =>
-            if Column = Looper_AUT_Column then
-               Set_Auto_Setting (Auto_Next (Auto_Setting));
-            else
-               declare
-                  Track : constant Loop_Track := Loop_Track (Column);
-               begin
-                  Set_Quantize (Track, Quantize_Next (Quantize (Track)));
-               end;
-            end if;
-
-         when B_Press | Slider_Touch =>
-            null;
-      end case;
-   end Looper_Config_Event;
 
    ----------
    -- Draw --
@@ -405,10 +227,6 @@ package body WNM.GUI.Menu.Root is
             Draw_Icon (project_icon.Data);
          when Sequencer_Mode_Select =>
             Draw_Sequencer_Mode_Icons;
-         when Looper_Config =>
-            if not This.Looper_Editing then
-               Draw_Icon (loop_icon.Data);
-            end if;
          when Tracks_Mixer =>
             Draw_Icon (mixer_icon.Data);
          when User_Waveform =>
@@ -425,18 +243,11 @@ package body WNM.GUI.Menu.Root is
             Draw_Icon (system_info_icon.Data);
       end case;
 
-      if This.Item = Looper_Config and then This.Looper_Editing then
-         --  Replaces the icon and the generic bottom label below with the
-         --  5-column editor.
-         Draw_Looper_Config (This.Looper_Column);
-      elsif This.Item = Sequencer_Mode_Select then
-         null;  --  Draws its own two labels, one per icon, above.
-      else
+      if This.Item /= Sequencer_Mode_Select then
+         --  Sequencer Mode draws its own label under each of its two
+         --  icons, so it has no single name to put along the bottom.
          Draw_Str_Center (Box_Bottom - Bitmap_Fonts.Height - 2,
                           Menu_Item_Text (This.Item));
-         if This.Item = Looper_Config then
-            Draw_Str (Box_Left + 3, Value_Text_Y, "Press A to edit");
-         end if;
       end if;
    end Draw;
 
@@ -450,15 +261,6 @@ package body WNM.GUI.Menu.Root is
       Event : Menu_Event)
    is
    begin
-      if This.Item = Looper_Config and then This.Looper_Editing then
-         if Event.Kind = B_Press then
-            This.Looper_Editing := False;
-         else
-            Looper_Config_Event (This.Looper_Column, Event);
-         end if;
-         return;
-      end if;
-
       case Event.Kind is
          when A_Press =>
             case This.Item is
@@ -467,9 +269,6 @@ package body WNM.GUI.Menu.Root is
 
                when Sequencer_Mode_Select =>
                   Request_Mode (WNM.Project.Four_Track_Looper);
-
-               when Looper_Config =>
-                  This.Looper_Editing := True;
 
                when Inputs =>
                   Menu.Inputs.Push_Window;
@@ -534,7 +333,6 @@ package body WNM.GUI.Menu.Root is
    is
    begin
       This.Item := Menu_Items'First;
-      This.Looper_Editing := False;
    end On_Pushed;
 
    --------------

@@ -147,6 +147,37 @@ package WNM.Project is
    --  shared clock (both modes use it), and in Four_Track_Looper mode
    --  also starts, resumes or pauses WNM.Looper's own transport to match.
 
+   procedure Looper_Keyboard_Press (Button : Keyboard_Button);
+   procedure Looper_Keyboard_Release (Button : Keyboard_Button);
+   --  The sixteen pads in Four_Track_Looper mode with the keyboard on.
+   --  Note On on press and Note Off on release, rather than the step
+   --  sequencer's fixed-duration Play_Now: the arp needs to know which
+   --  notes are actually still held, and a loop wants the real length of
+   --  the note that was played. Both go through the same path live MIDI
+   --  in does, so the looper captures them and the effects see them.
+
+   procedure Looper_Track_Select (Button : Keyboard_Button);
+   --  The sixteen pads in Four_Track_Looper mode with the keyboard off
+   --  and Track mode showing: picks the instrument, exactly like the step
+   --  sequencer's own track select, but pushing only the track's own CC
+   --  values. The step sequencer's version reads per-step CC overrides out
+   --  of Steps, which is the loop event pool in this mode.
+
+   procedure Looper_Arp_Pad (Button : Keyboard_Button);
+   --  The sixteen pads in Four_Track_Looper mode with the keyboard off
+   --  and Step mode showing, the spec's LiveArp surface: 1-6 pick an arp
+   --  style for the selected track and pressing the style already showing
+   --  turns the arp off, 7-8 toggle octave down and up, 9-16 pick one of
+   --  the eight divisions.
+
+   function Looper_Arp_Channel return MIDI.MIDI_Channel;
+   --  The channel the LiveArp surface is currently pointed at, which is
+   --  whatever the selected track plays on. Chord is excluded from arping
+   --  per the spec, and this still answers its channel, so callers check
+   --  Looper_Arp_Available before showing or changing anything.
+
+   function Looper_Arp_Available return Boolean;
+
    ----------
    -- Step --
    ----------

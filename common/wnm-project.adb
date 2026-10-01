@@ -2441,6 +2441,243 @@ package body WNM.Project is
       end if;
    end Looper_FX_Release;
 
+   -----------------------------
+   -- Looper_Arp_Channel      --
+   -----------------------------
+
+   function Looper_Arp_Channel return MIDI.MIDI_Channel is
+      T : constant Tracks := Editing_Track;
+   begin
+      case Mode (T) is
+         when Synth_Track_Mode_Kind =>
+            return Voice_MIDI_Chan (Mode (T));
+         when MIDI_Mode =>
+            return MIDI_Chan (T);
+      end case;
+   end Looper_Arp_Channel;
+
+   -------------------------------
+   -- Looper_Arp_Available      --
+   -------------------------------
+
+   function Looper_Arp_Available return Boolean is
+      use type MIDI.MIDI_Channel;
+      Chan : constant MIDI.MIDI_Channel := Looper_Arp_Channel;
+   begin
+      --  The arp engine only has instances for Arp_Channel, and the spec
+      --  is explicit that the Chord track never arps: its held notes play
+      --  as an ordinary poly chord.
+      return Chan in WNM.Looper.Arp_Channel
+        and then Chan /= WNM.Synth.Chord_Channel;
+   end Looper_Arp_Available;
+
+   --------------------
+   -- Looper_Arp_Pad --
+   --------------------
+
+   procedure Looper_Arp_Pad (Button : Keyboard_Button) is
+      use type WNM.Looper.Arp_Style_Kind;
+
+      Pad : constant Natural :=
+        Natural (WNM.Keyboard_Value'(To_Value (Button)));
+      --  Qualified: Tracks, Patterns and Song_Element all derive from
+      --  Keyboard_Value and so inherit To_Value, leaving it ambiguous.
+   begin
+      if not Looper_Arp_Available then
+         return;
+      end if;
+
+      declare
+         Chan : constant WNM.Looper.Arp_Channel :=
+           WNM.Looper.Arp_Channel (Looper_Arp_Channel);
+      begin
+         case Pad is
+            when 1 .. 6 =>
+               --  Arp_Style_Kind'First is Arp_Off, so the six playable
+               --  styles are Pos 1 .. 6 and the pads line up one to one.
+               declare
+                  Chosen : constant WNM.Looper.Arp_Style_Kind :=
+                    WNM.Looper.Arp_Style_Kind'Val (Pad);
+               begin
+                  if WNM.Looper.Arp_Style (Chan) = Chosen then
+                     --  "if you press the one thats already selected it
+                     --  turns the arp off". Arp_Reset sends the note-offs
+                     --  for whatever the stepper had sounding, otherwise
+                     --  turning the arp off mid-hold leaves a note
+                     --  ringing with nothing left that knows about it.
+                     WNM.Looper.Set_Arp_Style (Chan, WNM.Looper.Arp_Off);
+                     WNM.Looper.Arp_Reset (Chan, Arp_Emit'Access);
+                  else
+                     WNM.Looper.Set_Arp_Style (Chan, Chosen);
+                  end if;
+               end;
+
+            when 7 =>
+               WNM.Looper.Set_Arp_Octave_Down
+                 (Chan, not WNM.Looper.Arp_Octave_Down (Chan));
+
+            when 8 =>
+               WNM.Looper.Set_Arp_Octave_Up
+                 (Chan, not WNM.Looper.Arp_Octave_Up (Chan));
+
+            when 9 .. 16 =>
+               WNM.Looper.Set_Arp_Division
+                 (Chan, WNM.Looper.Arp_Division_Kind'Val (Pad - 9));
+
+            when others =>
+               null;
+         end case;
+      end;
+   end Looper_Arp_Pad;
+
+   -----------------------------
+   -- Looper_Keyboard_Press   --
+   -----------------------------
+
+   procedure Looper_Keyboard_Press (Button : Keyboard_Button) is
+      use type MIDI.MIDI_Channel;
+      use type WNM.Looper.Arp_Style_Kind;
+
+      T : constant Tracks := Editing_Track;
+   begin
+      --  B1, B4 and B8 are the keyboard layout's own octave controls, the
+      --  same three the step sequencer uses, so they stay octave controls
+      --  here rather than becoming notes.
+      case Button is
+         when B1 =>
+            if Step_Sequencer.Keyboard_Octave /= Octave_Offset'First then
+               Step_Sequencer.Set_Keyboard_Octave
+                 (Step_Sequencer.Keyboard_Octave - 1);
+            end if;
+            return;
+
+         when B8 =>
+            if Step_Sequencer.Keyboard_Octave /= Octave_Offset'Last then
+               Step_Sequencer.Set_Keyboard_Octave
+                 (Step_Sequencer.Keyboard_Octave + 1);
+            end if;
+            return;
+
+         when B4 =>
+            Step_Sequencer.Set_Keyboard_Octave (0);
+            return;
+
+         when others =>
+            null;
+      end case;
+
+      declare
+         Chan : constant MIDI.MIDI_Channel :=
+           (case Mode (T) is
+               when Synth_Track_Mode_Kind => Voice_MIDI_Chan (Mode (T)),
+               when MIDI_Mode             => MIDI_Chan (T));
+
+         Key : constant MIDI.MIDI_Key :=
+           Step_Sequencer.Keyboard_Key (Button, T);
+
+         Msg : constant MIDI.Message :=
+           (Kind     => MIDI.Note_On,
+            Chan     => Chan,
+            Key      => Key,
+            Velocity => MIDI.MIDI_Data'Last);
+
+         Via_Arp : constant Boolean :=
+           Chan in WNM.Looper.Arp_Channel
+             and then Chan /= WNM.Synth.Chord_Channel
+             and then WNM.Looper.Arp_Style (Chan) /= WNM.Looper.Arp_Off;
+      begin
+         --  Captured whether or not the arp swallows the note itself, so a
+         --  loop holds what was played rather than what the arp made of
+         --  it: "the looper saves notes pre-livearp".
+         declare
+            Captured : constant Boolean :=
+              WNM.Looper.Capture
+                (WNM.Time.Clock, WNM.Looper.To_Loop_Event (Msg));
+            pragma Unreferenced (Captured);
+         begin
+            null;
+         end;
+
+         if Via_Arp then
+            WNM.Looper.Arp_Note_On (Chan, Key, MIDI.MIDI_Data'Last);
+         else
+            Sound_And_Record (Msg);
+         end if;
+      end;
+
+      Sync_Clock_To_Looper;
+   end Looper_Keyboard_Press;
+
+   -------------------------------
+   -- Looper_Keyboard_Release   --
+   -------------------------------
+
+   procedure Looper_Keyboard_Release (Button : Keyboard_Button) is
+      use type MIDI.MIDI_Channel;
+      use type WNM.Looper.Arp_Style_Kind;
+
+      T : constant Tracks := Editing_Track;
+   begin
+      if Button in B1 | B4 | B8 then
+         --  Octave controls, nothing sounding to release.
+         return;
+      end if;
+
+      declare
+         Chan : constant MIDI.MIDI_Channel :=
+           (case Mode (T) is
+               when Synth_Track_Mode_Kind => Voice_MIDI_Chan (Mode (T)),
+               when MIDI_Mode             => MIDI_Chan (T));
+
+         Key : constant MIDI.MIDI_Key :=
+           Step_Sequencer.Keyboard_Key (Button, T);
+
+         Msg : constant MIDI.Message :=
+           (Kind     => MIDI.Note_Off,
+            Chan     => Chan,
+            Key      => Key,
+            Velocity => 0);
+
+         Via_Arp : constant Boolean :=
+           Chan in WNM.Looper.Arp_Channel
+             and then Chan /= WNM.Synth.Chord_Channel
+             and then WNM.Looper.Arp_Style (Chan) /= WNM.Looper.Arp_Off;
+      begin
+         declare
+            Captured : constant Boolean :=
+              WNM.Looper.Capture
+                (WNM.Time.Clock, WNM.Looper.To_Loop_Event (Msg));
+            pragma Unreferenced (Captured);
+         begin
+            null;
+         end;
+
+         if Via_Arp then
+            WNM.Looper.Arp_Note_Off (Chan, Key, Arp_Emit'Access);
+         else
+            Sound_And_Record (Msg);
+         end if;
+      end;
+   end Looper_Keyboard_Release;
+
+   -----------------------------
+   -- Looper_Track_Select     --
+   -----------------------------
+
+   procedure Looper_Track_Select (Button : Keyboard_Button) is
+      T : constant Tracks := To_Value (Button);
+   begin
+      Editing_Track := T;
+
+      --  Just the track's own CC values. Step_Sequencer's own
+      --  Do_Preview_Trigger goes through CC_Value_To_Use, which reads the
+      --  per-step CC override out of G_Project.Steps, and in this mode
+      --  that storage is the loop event pool: it would push whatever
+      --  loop-event bytes happen to sit there into the voice as parameter
+      --  values.
+      Synchronize_Synth_Settings (T);
+   end Looper_Track_Select;
+
    procedure Play_Pause_Dispatch is
    begin
       --  Flips the shared clock either way: both modes use it, and

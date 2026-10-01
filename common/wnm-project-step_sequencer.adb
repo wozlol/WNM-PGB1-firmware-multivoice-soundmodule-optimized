@@ -898,6 +898,39 @@ package body WNM.Project.Step_Sequencer is
    is (G_Keyboard_Octave);
 
    -------------------------
+   -- Set_Keyboard_Octave --
+   -------------------------
+
+   procedure Set_Keyboard_Octave (O : Octave_Offset) is
+   begin
+      G_Keyboard_Octave := O;
+   end Set_Keyboard_Octave;
+
+   ------------------
+   -- Keyboard_Key --
+   ------------------
+
+   function Keyboard_Key (Button : Keyboard_Button;
+                          T      : Tracks) return MIDI.MIDI_Key
+   is (Offset (Offset ((case Button is
+                   when B9  => MIDI.C4,
+                   when B2  => MIDI.Cs4,
+                   when B10 => MIDI.D4,
+                   when B3  => MIDI.Ds4,
+                   when B11 => MIDI.E4,
+                   when B12 => MIDI.F4,
+                   when B5  => MIDI.Fs4,
+                   when B13 => MIDI.G4,
+                   when B6  => MIDI.Gs4,
+                   when B14 => MIDI.A4,
+                   when B7  => MIDI.As4,
+                   when B15 => MIDI.B4,
+                   when B16 => MIDI.C5,
+                   when others => MIDI.C4),
+                       G_Keyboard_Octave),
+               G_Project.Tracks (T).Offset));
+
+   -------------------------
    -- Song_Start_Callback --
    -------------------------
 

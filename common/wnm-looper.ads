@@ -249,6 +249,20 @@ package WNM.Looper is
    function Auto_Next (A : Auto_Kind) return Auto_Kind
    is (if A = Auto_Kind'Last then Auto_Kind'First else Auto_Kind'Succ (A));
 
+   Menu_Tab_Count : constant := 4;
+   type Menu_Tab_Id is range 0 .. Menu_Tab_Count - 1;
+   function Menu_Tab return Menu_Tab_Id;
+   procedure Set_Menu_Tab (T : Menu_Tab_Id);
+
+   type Menu_Column_Id is range 1 .. 5;
+   function Menu_Column return Menu_Column_Id;
+   procedure Set_Menu_Column (C : Menu_Column_Id);
+   --  Which tab and which of the five columns the Looper menu is showing.
+   --  Kept here, in the Steps overlay, instead of as fields on the menu
+   --  window itself: a window's fields are permanent RAM whichever mode
+   --  is live, and this firmware has none to spare. A plain index rather
+   --  than the GUI's own enum so this package stays independent of it.
+
    function Auto_Setting return Auto_Kind;
    procedure Set_Auto_Setting (Setting : Auto_Kind);
    --  One setting shared by the whole looper, not per track, matching the
@@ -359,11 +373,14 @@ package WNM.Looper is
    --  noticeable delay at a slow division). Passing null keeps the old
    --  behavior.
 
-   procedure Arp_Reset (Channel : Arp_Channel);
-   --  Drops all held notes and silences the channel without sending the
-   --  note-offs itself (the caller, which still knows what was last
-   --  emitted, is responsible for that). Used when a style or channel
-   --  selection changes out from under held notes.
+   procedure Arp_Reset (Channel : Arp_Channel;
+                        Emit    : Arp_Emit_Proc := null);
+   --  Drops all held notes and stops the stepper. Used when a style or
+   --  channel selection changes out from under held notes. Emit, if
+   --  given, sends the note-offs for whatever this channel was last
+   --  sounding, which is the only way they go out at all: nothing
+   --  outside this engine knows what the stepper picked. Passing null
+   --  leaves them ringing.
 
    ------------------------------------------------------------------------
    --  Stutter and dub delay
