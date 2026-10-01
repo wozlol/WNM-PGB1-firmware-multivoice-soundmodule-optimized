@@ -1625,6 +1625,14 @@ package body WNM.Project.Storage is
       --  Set default gains in case there is no mixer section saved
       G_Project.Gains := Default_Gains;
 
+      --  An absent mode token has to mean OG Sequencer, which is what
+      --  every file written before that token existed is. Without this the
+      --  mode carries over from whatever was loaded before: opening an OG
+      --  project straight after a Looper one would leave the mode saying
+      --  Looper while Steps holds real step data, and the loop engine
+      --  would then reset the overlay and take the sequence with it.
+      Set_Sequencer_Mode (OG_Sequencer);
+
       --  Likewise for Steps/Patterns: a Four_Track_Looper project has no
       --  Pattern or Sequence section at all (see the Save guard above), so
       --  without this whatever a previously loaded project left behind,

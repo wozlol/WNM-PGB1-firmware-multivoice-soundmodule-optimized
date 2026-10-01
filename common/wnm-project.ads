@@ -126,8 +126,15 @@ package WNM.Project is
 
    procedure Looper_Silence_Effects;
    --  Sends the note-offs for anything the stutter or the dub delay still
-   --  has sounding and forgets the rest. For leaving Looper mode, so
-   --  neither can keep playing into the step sequencer.
+   --  has sounding and forgets the rest.
+
+   procedure Prepare_Mode_Switch;
+   --  Brings both transports to a full stop before the Sequencer Mode
+   --  changes under them, so nothing is left sounding and nothing keeps
+   --  being ticked by a mode that no longer owns it. In Looper mode that
+   --  means stopping the loop player with its note-offs and silencing the
+   --  effects, and either way it means stopping the shared clock, whose
+   --  stop broadcast is what the step sequencer already cleans up on.
 
    procedure Looper_FX_Press (Pad : WNM.Keyboard_Value);
    procedure Looper_FX_Release (Pad : WNM.Keyboard_Value);

@@ -2353,7 +2353,21 @@ package body WNM.Project is
    ---------------------
 
    procedure Looper_Play_Tap is
+      Beat : constant HAL.UInt32 := HAL.UInt32 (Microseconds_Per_Beat);
+
+      Quantum : constant HAL.UInt32 :=
+        (case WNM.Looper.Quantize (WNM.Looper.Selected_Track) is
+            when WNM.Looper.Off  => 0,
+            when WNM.Looper.Q_8  => Beat / 2,
+            when WNM.Looper.Q_16 => Beat / 4,
+            when WNM.Looper.Q_32 => Beat / 8);
    begin
+      --  The Looper tab's quantize column only ever set a per-track
+      --  enum. This is what turns that into the figure Capture actually
+      --  rounds against, at whatever BPM is set right now, and it has to
+      --  happen before the tap arms anything.
+      WNM.Looper.Set_Record_Quantize_Us (Quantum);
+
       WNM.Looper.Play_Tap
         (Now_Us          => WNM.Time.Clock,
          Fixed_Length_Us =>
@@ -2392,6 +2406,31 @@ package body WNM.Project is
    begin
       WNM.Looper.Clear_Effects (FX_Emit'Access);
    end Looper_Silence_Effects;
+
+   ---------------------------
+   -- Prepare_Mode_Switch   --
+   ---------------------------
+
+   procedure Prepare_Mode_Switch is
+   begin
+      if G_Project.Mode = Four_Track_Looper then
+         --  Stop sends the note-offs for whatever the loop player has
+         --  sounding. Without it those notes have nothing left that knows
+         --  about them once the overlay is overwritten, and they ring
+         --  forever.
+         WNM.Looper.Cancel_Recording;
+         WNM.Looper.Stop (Looper_Release'Access);
+         WNM.Looper.Clear_Effects (FX_Emit'Access);
+      end if;
+
+      --  Both directions: the clock is shared, and leaving it running
+      --  means the mode taking over starts being ticked immediately, from
+      --  whatever is in the storage both modes share. The step
+      --  sequencer already releases its own notes on the stop broadcast.
+      if WNM.MIDI_Clock.Running then
+         WNM.MIDI_Clock.Internal_Stop;
+      end if;
+   end Prepare_Mode_Switch;
 
    ----------------------
    -- Looper_FX_Press  --
@@ -2462,13 +2501,17 @@ package body WNM.Project is
 
    function Looper_Arp_Available return Boolean is
       use type MIDI.MIDI_Channel;
-      Chan : constant MIDI.MIDI_Channel := Looper_Arp_Channel;
+      T : constant Tracks := Editing_Track;
    begin
-      --  The arp engine only has instances for Arp_Channel, and the spec
-      --  is explicit that the Chord track never arps: its held notes play
-      --  as an ordinary poly chord.
-      return Chan in WNM.Looper.Arp_Channel
-        and then Chan /= WNM.Synth.Chord_Channel;
+      --  Synth tracks only. A MIDI_Mode track's channel is an external
+      --  one the user picked, and indexing the arp table with it would
+      --  share an instance with whichever internal voice has that same
+      --  number. The engine only has instances for Arp_Channel, and the
+      --  spec is explicit that the Chord track never arps: its held notes
+      --  play as an ordinary poly chord.
+      return Mode (T) in Synth_Track_Mode_Kind
+        and then Looper_Arp_Channel in WNM.Looper.Arp_Channel
+        and then Looper_Arp_Channel /= WNM.Synth.Chord_Channel;
    end Looper_Arp_Available;
 
    --------------------

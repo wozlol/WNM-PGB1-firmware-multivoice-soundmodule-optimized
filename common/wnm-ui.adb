@@ -253,10 +253,14 @@ package body WNM.UI is
                         Project.Step_Sequencer.On_Press
                           (B, Current_Input_Mode);
 
-                     elsif Chroma_Keyboard_On then
+                     elsif Chroma_Keyboard_On
+                       or else Current_Input_Mode = Sample_Edit_Mode
+                     then
                         --  Playing notes. Note Off comes on release, not
                         --  after a fixed duration, so the arp and the
                         --  loop both get the real length of the note.
+                        --  Sample Edit shows the keyboard whether or not
+                        --  the Edit toggle is on, so it plays notes too.
                         Project.Looper_Keyboard_Press (B);
 
                      elsif Current_Input_Mode = Step_Mode then
@@ -334,7 +338,9 @@ package body WNM.UI is
 
                   when Keyboard_Button =>
                      if Project.Sequencer_Mode /= Project.OG_Sequencer
-                       and then Chroma_Keyboard_On
+                       and then (Chroma_Keyboard_On
+                                 or else
+                                   Current_Input_Mode = Sample_Edit_Mode)
                      then
                         Project.Looper_Keyboard_Release (B);
                      end if;

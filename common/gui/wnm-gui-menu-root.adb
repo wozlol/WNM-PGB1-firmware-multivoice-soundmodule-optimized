@@ -77,16 +77,24 @@ package body WNM.GUI.Menu.Root is
       if M = WNM.Project.Sequencer_Mode then
          return;
       end if;
-      --  Anything the stutter or dub delay still has sounding gets its
-      --  note-offs now, while the engine that knows about them is still
-      --  the live one.
-      WNM.Project.Looper_Silence_Effects;
 
-      --  Both directions share the same RAM (see WNM.Looper), so every
-      --  switch resets both sides: the one taking over starts clean, and
-      --  the one being left starts clean too, for next time.
-      WNM.Looper.Reset;
+      --  Stops both transports and sends the note-offs for anything the
+      --  outgoing mode still has sounding, while the engine that knows
+      --  about those notes is still the live one.
+      WNM.Project.Prepare_Mode_Switch;
+
+      --  Order matters, and getting it wrong is a hard fault rather than
+      --  a wrong note. Both modes share the same bytes (see WNM.Looper),
+      --  so whichever one is taking over has to be the last to write
+      --  them. Clear_Sequences fills them with default step data, and
+      --  Looper.Reset fills them with an empty event pool, so each is
+      --  destroyed by the other running after it.
       WNM.Project.Clear_Sequences;
+
+      if M = WNM.Project.Four_Track_Looper then
+         WNM.Looper.Reset;
+      end if;
+
       WNM.Project.Set_Sequencer_Mode (M);
    end Apply_Mode_Switch;
 
@@ -268,7 +276,11 @@ package body WNM.GUI.Menu.Root is
                   Menu.Projects.Push_Window;
 
                when Sequencer_Mode_Select =>
-                  Request_Mode (WNM.Project.Four_Track_Looper);
+                  --  A switches to whichever mode is not live, from
+                  --  either side. A means "select" on every other screen
+                  --  in this UI, so it has to mean the same thing here no
+                  --  matter which mode you are already in.
+                  Request_Mode (Other_Mode);
 
                when Inputs =>
                   Menu.Inputs.Push_Window;
@@ -295,9 +307,7 @@ package body WNM.GUI.Menu.Root is
             end case;
 
          when B_Press =>
-            if This.Item = Sequencer_Mode_Select then
-               Request_Mode (WNM.Project.OG_Sequencer);
-            end if;
+            null;
 
          when Up_Press =>
             null;

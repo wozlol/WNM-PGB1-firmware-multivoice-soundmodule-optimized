@@ -13,6 +13,8 @@ with WNM.Project;
 
 package body WNM.Looper is
 
+   use type WNM.Project.Sequencer_Mode_Kind;
+
    use type MIDI.MIDI_UInt8;
 
    -----------------
@@ -304,7 +306,20 @@ package body WNM.Looper is
    --  pointer (still 4 bytes this firmware did not have), see the comment
    --  by Overlay_Ptr below for what this settled on.
 
+   Overlay_Magic : constant UInt32 := 16#4C50_3201#;
+   --  "LP2" plus a layout revision. Bump the low byte whenever this
+   --  record's layout changes, so a project saved by an older build is
+   --  reset rather than read with the fields in the wrong places.
+
    type Looper_Overlay is record
+      Magic : UInt32;
+      --  First field, so it is at a fixed offset no matter what else
+      --  moves. See Overlay_Ptr: in Looper mode anything other than
+      --  Overlay_Magic here means the bytes belong to something else
+      --  (step data from before a mode switch, a project with no Looper
+      --  section, an older layout) and every other field is an index or
+      --  a count, so following one is a hard fault.
+
       Event_Pool : Slot_Array;
 
       Tracks : Track_Array;
@@ -377,11 +392,35 @@ package body WNM.Looper is
    --  instruction per access for it. Every reference past this point reads
    --  Overlay_Ptr.Field where Overlay.Field used to be.
 
+   function To_Access is new Ada.Unchecked_Conversion
+     (System.Address, Looper_Overlay_Access);
+
+   procedure Reset_In_Place (P : not null Looper_Overlay_Access);
+   --  Reset's whole body, taking the pointer rather than calling
+   --  Overlay_Ptr, so the validation below can use it without recursing.
+
    function Overlay_Ptr return not null Looper_Overlay_Access is
-      function To_Access is new Ada.Unchecked_Conversion
-        (System.Address, Looper_Overlay_Access);
+      P : constant Looper_Overlay_Access :=
+        To_Access (WNM.Project.Steps_Storage_Address);
    begin
-      return To_Access (WNM.Project.Steps_Storage_Address);
+      if P.Magic /= Overlay_Magic
+        and then WNM.Project.Sequencer_Mode = WNM.Project.Four_Track_Looper
+      then
+         --  In Looper mode with something that is not this engine's own
+         --  state in the overlay. Reset rather than read it: every field
+         --  past Magic is an index, a count or a timestamp, and a stale
+         --  free-list head or event index walks off the end of the pool.
+         --
+         --  Checked in this order deliberately. Magic matches on every
+         --  call but the first, so the common path is one compare, and
+         --  the mode call only happens when it does not. The mode test is
+         --  what keeps this from ever firing in OG Sequencer mode, where
+         --  these same bytes are the project's real step data and wiping
+         --  them would destroy the user's sequence.
+         Reset_In_Place (P);
+      end if;
+
+      return P;
    end Overlay_Ptr;
 
    --  No renames here: GNAT materializes a stored address for each rename
@@ -439,55 +478,70 @@ package body WNM.Looper is
 
    procedure Reset is
    begin
+      --  Not through Overlay_Ptr: this is also what Overlay_Ptr calls to
+      --  recover an overlay that fails its Magic check.
+      Reset_In_Place (To_Access (WNM.Project.Steps_Storage_Address));
+   end Reset;
+
+   --------------------
+   -- Reset_In_Place --
+   --------------------
+
+   procedure Reset_In_Place (P : not null Looper_Overlay_Access) is
+   begin
       for I in Slot_Index loop
-         Overlay_Ptr.Event_Pool (I) := (At_Us => 0,
+         P.Event_Pool (I) := (At_Us => 0,
                             Event => (others => <>),
                             Next  => (if I < Slot_Index'Last
                                       then I + 1 else No_Slot));
       end loop;
-      Overlay_Ptr.Tracks := (others => (others => <>));
-      Overlay_Ptr.Free_Head := 0;
-      Overlay_Ptr.Used_Count := 0;
-      Overlay_Ptr.Overflow := 0;
-      Overlay_Ptr.Generation_Counter := 0;
-      Overlay_Ptr.Transport_Start_Us := 0;
-      Overlay_Ptr.Record_Start_Us := 0;
-      Overlay_Ptr.Record_Fixed_Length_Us := 0;
-      Overlay_Ptr.Record_Quantize_Us := 0;
-      Overlay_Ptr.Selected := Loop_Track'First;
-      Overlay_Ptr.Recording_Trk := Loop_Track'First;
-      Overlay_Ptr.Is_Playing := False;
-      Overlay_Ptr.Is_Paused := False;
-      Overlay_Ptr.Is_Recording_Armed := False;
-      Overlay_Ptr.Is_Recording := False;
-      Overlay_Ptr.Is_Overdubbing := False;
-      Overlay_Ptr.Record_Start_Count := 0;
-      Overlay_Ptr.Auto_Setting := Auto_Off;
-      Overlay_Ptr.Menu_Tab_Val := Menu_Tab_Id'First;
-      Overlay_Ptr.Menu_Column_Val := Menu_Column_Id'First;
-      Overlay_Ptr.Play_Tap_Us := 0;
-      Overlay_Ptr.Play_Tap_Track := Loop_Track'First;
-      Overlay_Ptr.Play_Tap_Icon := Empty;
-      Overlay_Ptr.Play_Tap_Valid := False;
-      Held_Reset (Overlay_Ptr.Record_Held);
-      Overlay_Ptr.Arp := (others => (others => <>));
-      Overlay_Ptr.Arp_Seed := 12345;
+      P.Tracks := (others => (others => <>));
+      P.Free_Head := 0;
+      P.Used_Count := 0;
+      P.Overflow := 0;
+      P.Generation_Counter := 0;
+      P.Transport_Start_Us := 0;
+      P.Record_Start_Us := 0;
+      P.Record_Fixed_Length_Us := 0;
+      P.Record_Quantize_Us := 0;
+      P.Selected := Loop_Track'First;
+      P.Recording_Trk := Loop_Track'First;
+      P.Is_Playing := False;
+      P.Is_Paused := False;
+      P.Is_Recording_Armed := False;
+      P.Is_Recording := False;
+      P.Is_Overdubbing := False;
+      P.Record_Start_Count := 0;
+      P.Auto_Setting := Auto_Off;
+      P.Menu_Tab_Val := Menu_Tab_Id'First;
+      P.Menu_Column_Val := Menu_Column_Id'First;
+      P.Play_Tap_Us := 0;
+      P.Play_Tap_Track := Loop_Track'First;
+      P.Play_Tap_Icon := Empty;
+      P.Play_Tap_Valid := False;
+      Held_Reset (P.Record_Held);
+      Held_Reset (P.Held_Scratch);
+      P.Arp := (others => (others => <>));
+      P.Arp_Seed := 12345;
 
-      Overlay_Ptr.FX.History_Next := 0;
-      Overlay_Ptr.FX.History_Count := 0;
-      Overlay_Ptr.FX.Stutter_On := False;
-      Overlay_Ptr.FX.Stutter_Cursor := 0;
-      Overlay_Ptr.FX.Stutter_Length_Us := 0;
-      Overlay_Ptr.FX.Stutter_Cycle_Us := 0;
-      Overlay_Ptr.FX.Stutter_Window_Us := 0;
-      Held_Reset (Overlay_Ptr.FX.Stutter_Sounding);
-      Overlay_Ptr.FX.Delay_On := False;
-      Overlay_Ptr.FX.Delay_Div := D_1_8;
-      Overlay_Ptr.FX.Delay_Used := (others => False);
+      P.FX.History_Next := 0;
+      P.FX.History_Count := 0;
+      P.FX.Stutter_On := False;
+      P.FX.Stutter_Cursor := 0;
+      P.FX.Stutter_Length_Us := 0;
+      P.FX.Stutter_Cycle_Us := 0;
+      P.FX.Stutter_Window_Us := 0;
+      Held_Reset (P.FX.Stutter_Sounding);
+      P.FX.Delay_On := False;
+      P.FX.Delay_Div := D_1_8;
+      P.FX.Delay_Used := (others => False);
       --  History contents are left alone: every slot past History_Count
       --  is unreachable, and the ones inside it are overwritten before
       --  they are read.
-   end Reset;
+      P.Magic := Overlay_Magic;
+      --  Last, so a reset interrupted part way through does not leave an
+      --  overlay that claims to be valid.
+   end Reset_In_Place;
 
    -------------------
    -- Allocate_Slot --
