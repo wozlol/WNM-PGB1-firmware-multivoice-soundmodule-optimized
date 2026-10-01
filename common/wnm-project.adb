@@ -2165,6 +2165,46 @@ package body WNM.Project is
       G_Project.Mode := M;
    end Set_Sequencer_Mode;
 
+   ------------------------
+   -- Sound_And_Record   --
+   ------------------------
+
+   procedure Sound_And_Record (Msg : MIDI.Message) is
+   begin
+      WNM.Coproc.Push_To_Synth ((Kind     => WNM.Coproc.MIDI_Event,
+                                MIDI_Evt => Msg));
+
+      if G_Project.Mode = Four_Track_Looper then
+         declare
+            E : constant WNM.Looper.MIDI_Event :=
+              WNM.Looper.To_Loop_Event (Msg);
+            Now : constant WNM.Time.Time_Microseconds := WNM.Time.Clock;
+         begin
+            --  The one place everything that actually sounds goes
+            --  through, so the stutter's history and the dub delay both
+            --  see live playing, loop playback and the arp alike, and
+            --  only those: the effects' own output goes out through
+            --  FX_Emit below, which deliberately does not come back
+            --  here. Without that split a stutter would repeat its own
+            --  repeats.
+            WNM.Looper.History_Push (Now, E);
+            WNM.Looper.Delay_Note
+              (Now, E, HAL.UInt32 (Microseconds_Per_Beat));
+         end;
+      end if;
+   end Sound_And_Record;
+
+   -------------
+   -- FX_Emit --
+   -------------
+
+   procedure FX_Emit (Event : WNM.Looper.MIDI_Event) is
+   begin
+      WNM.Coproc.Push_To_Synth
+        ((Kind     => WNM.Coproc.MIDI_Event,
+         MIDI_Evt => WNM.Looper.To_MIDI_Message (Event)));
+   end FX_Emit;
+
    -----------------
    -- Looper_Emit --
    -----------------
@@ -2181,9 +2221,7 @@ package body WNM.Project is
       --  played live, see Send_To_Synth) is what actually routes it to
       --  the right instrument, same as live playing always has.
    begin
-      WNM.Coproc.Push_To_Synth
-        ((Kind     => WNM.Coproc.MIDI_Event,
-         MIDI_Evt => WNM.Looper.To_MIDI_Message (Event)));
+      Sound_And_Record (WNM.Looper.To_MIDI_Message (Event));
    end Looper_Emit;
 
    --------------------------
@@ -2197,12 +2235,10 @@ package body WNM.Project is
    is
       pragma Unreferenced (Track, Velocity);
    begin
-      WNM.Coproc.Push_To_Synth
-        ((Kind     => WNM.Coproc.MIDI_Event,
-         MIDI_Evt => (Kind     => MIDI.Note_Off,
-                      Chan     => MIDI.MIDI_Channel (Channel),
-                      Key      => MIDI.MIDI_Key (Note),
-                      Velocity => 0)));
+      Sound_And_Record ((Kind     => MIDI.Note_Off,
+                        Chan     => MIDI.MIDI_Channel (Channel),
+                        Key      => MIDI.MIDI_Key (Note),
+                        Velocity => 0));
    end Looper_Send_Note_Off;
 
    --------------------
@@ -2235,15 +2271,11 @@ package body WNM.Project is
       --  whatever the arp generates from them ("the looper saves notes
       --  pre-livearp" per the spec).
       if Note_On then
-         WNM.Coproc.Push_To_Synth
-           ((Kind     => WNM.Coproc.MIDI_Event,
-            MIDI_Evt => (Kind => MIDI.Note_On, Chan => Channel,
-                        Key => Key, Velocity => Velocity)));
+         Sound_And_Record ((Kind => MIDI.Note_On, Chan => Channel,
+                           Key => Key, Velocity => Velocity));
       else
-         WNM.Coproc.Push_To_Synth
-           ((Kind     => WNM.Coproc.MIDI_Event,
-            MIDI_Evt => (Kind => MIDI.Note_Off, Chan => Channel,
-                        Key => Key, Velocity => Velocity)));
+         Sound_And_Record ((Kind => MIDI.Note_Off, Chan => Channel,
+                           Key => Key, Velocity => Velocity));
       end if;
    end Arp_Emit;
 
@@ -2264,6 +2296,8 @@ package body WNM.Project is
             WNM.Looper.Arp_Tick (WNM.Time.Clock,
                                  HAL.UInt32 (Microseconds_Per_Beat),
                                  Arp_Emit'Access);
+            WNM.Looper.Stutter_Tick (WNM.Time.Clock, FX_Emit'Access);
+            WNM.Looper.Delay_Tick (WNM.Time.Clock, FX_Emit'Access);
       end case;
    end MIDI_Clock_Tick_Dispatch;
 
@@ -2284,6 +2318,128 @@ package body WNM.Project is
    -----------------------
    -- Play_Pause_Dispatch --
    -----------------------
+
+   -----------------------------
+   -- Sync_Clock_To_Looper    --
+   -----------------------------
+
+   procedure Sync_Clock_To_Looper is
+   begin
+      --  In Looper mode the Play button no longer drives the transport
+      --  directly, it drives per-track state, so the shared clock follows
+      --  that instead: running whenever the looper is playing or has a
+      --  take armed or in progress (an armed fixed-length take needs
+      --  ticks for Tick's own auto-finish to ever fire), stopped when
+      --  everything is idle. Same Internal_Start/Stop the step
+      --  sequencer's own Play_Pause uses.
+      if WNM.Looper.Playing
+        or else WNM.Looper.Recording
+        or else WNM.Looper.Recording_Armed
+        or else WNM.Looper.Stutter_Active
+        or else WNM.Looper.Delay_Active
+      then
+         if not WNM.MIDI_Clock.Running then
+            WNM.MIDI_Clock.Internal_Start;
+         end if;
+      else
+         if WNM.MIDI_Clock.Running then
+            WNM.MIDI_Clock.Internal_Stop;
+         end if;
+      end if;
+   end Sync_Clock_To_Looper;
+
+   ---------------------
+   -- Looper_Play_Tap --
+   ---------------------
+
+   procedure Looper_Play_Tap is
+   begin
+      WNM.Looper.Play_Tap
+        (Now_Us          => WNM.Time.Clock,
+         Fixed_Length_Us =>
+           Looper_Bars_To_Us
+             (Standard.Positive
+               (WNM.Looper.Bars (WNM.Looper.Selected_Track))),
+         Release         => Looper_Release'Access);
+
+      Sync_Clock_To_Looper;
+   end Looper_Play_Tap;
+
+   -------------------------
+   -- Looper_Clear_Track  --
+   -------------------------
+
+   procedure Looper_Clear_Track is
+      T : constant WNM.Looper.Loop_Track := WNM.Looper.Selected_Track;
+   begin
+      if WNM.Looper.Track_Has_Content (T) then
+         WNM.Looper.Safe_Clear (T, Looper_Release'Access);
+      else
+         --  Already cleared: this combo again undoes it, as long as
+         --  nothing has recorded over it since (Undo_Clear itself is a
+         --  no-op once the events are actually gone).
+         WNM.Looper.Undo_Clear (T);
+      end if;
+
+      Sync_Clock_To_Looper;
+   end Looper_Clear_Track;
+
+   ------------------------------
+   -- Looper_Silence_Effects   --
+   ------------------------------
+
+   procedure Looper_Silence_Effects is
+   begin
+      WNM.Looper.Clear_Effects (FX_Emit'Access);
+   end Looper_Silence_Effects;
+
+   ----------------------
+   -- Looper_FX_Press  --
+   ----------------------
+
+   procedure Looper_FX_Press (Pad : WNM.Keyboard_Value) is
+      Beat : constant HAL.UInt32 := HAL.UInt32 (Microseconds_Per_Beat);
+   begin
+      if Natural (Pad) <= 8 then
+         WNM.Looper.Stutter_Start
+           (WNM.Time.Clock,
+            WNM.Looper.Stutter_Division_Kind'Val (Natural (Pad) - 1),
+            Beat);
+      else
+         declare
+            D : constant WNM.Looper.Arp_Division_Kind :=
+              WNM.Looper.Arp_Division_Kind'Val (Natural (Pad) - 9);
+            use type WNM.Looper.Arp_Division_Kind;
+         begin
+            --  Latching: the same pad again turns it back off, a
+            --  different one switches division and leaves it on.
+            if WNM.Looper.Delay_Active
+              and then WNM.Looper.Delay_Division = D
+            then
+               WNM.Looper.Set_Delay (D, False);
+               WNM.Looper.Clear_Effects (FX_Emit'Access);
+            else
+               WNM.Looper.Set_Delay (D, True);
+            end if;
+         end;
+      end if;
+
+      Sync_Clock_To_Looper;
+   end Looper_FX_Press;
+
+   ------------------------
+   -- Looper_FX_Release  --
+   ------------------------
+
+   procedure Looper_FX_Release (Pad : WNM.Keyboard_Value) is
+   begin
+      --  Only the stutter is momentary. The delay latches, so its pads
+      --  do nothing on release.
+      if Natural (Pad) <= 8 then
+         WNM.Looper.Stutter_Stop (FX_Emit'Access);
+         Sync_Clock_To_Looper;
+      end if;
+   end Looper_FX_Release;
 
    procedure Play_Pause_Dispatch is
    begin
@@ -2398,8 +2554,7 @@ package body WNM.Project is
                                           Arp_Emit'Access);
                end if;
             else
-               WNM.Coproc.Push_To_Synth ((Kind => MIDI_Event,
-                                          MIDI_Evt => New_Msg));
+               Sound_And_Record (New_Msg);
             end if;
          end;
 

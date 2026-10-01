@@ -186,6 +186,37 @@ package WNM.Looper is
    type Track_Icon is (Empty, Stopped, Playing_Icon, Armed, Recording_Icon);
    function Icon (Track : Loop_Track) return Track_Icon;
 
+   procedure Play_Tap (Now_Us           : UInt64;
+                       Fixed_Length_Us  : UInt32;
+                       Release          : Release_Proc;
+                       Double_Window_Us : UInt32 := 350_000);
+   --  The whole Play button for this mode, on the selected track, per the
+   --  spec's state table:
+   --
+   --    cleared      -> arm
+   --    armed        -> unarm
+   --    stopped      -> play
+   --    playing      -> start overdubbing
+   --    overdubbing  -> stop overdubbing, keep playing
+   --
+   --  and on a second tap inside Double_Window_Us, on the same track:
+   --
+   --    was playing  -> stop
+   --    was stopped  -> clear
+   --    was cleared  -> undo the clear
+   --
+   --  The single tap's action happens immediately rather than being held
+   --  back to see whether a second one is coming: waiting would put
+   --  350ms of latency on every single tap, which is the one that has to
+   --  feel instant. A second tap undoes whatever the first one did and
+   --  then applies the double-tap action for the state the first tap saw,
+   --  which lands on the same place either way. The state the first tap
+   --  saw is remembered here (in the overlay, like everything else in
+   --  this package) rather than by the caller.
+   --
+   --  A clear here is always Safe_Clear, so the double-tap-to-undo above
+   --  can still bring it back until something records over it.
+
    type Bar_Count is range 1 .. 16;
    function Bars (Track : Loop_Track) return Bar_Count;
    procedure Set_Bars (Track : Loop_Track; Bars : Bar_Count; Now_Us : UInt64;
@@ -333,6 +364,84 @@ package WNM.Looper is
    --  note-offs itself (the caller, which still knows what was last
    --  emitted, is responsible for that). Used when a style or channel
    --  selection changes out from under held notes.
+
+   ------------------------------------------------------------------------
+   --  Stutter and dub delay
+   --
+   --  Both are global, across all tracks at once, per the spec. The
+   --  stutter is a port of ARPnMIDI's RollingHistory/HistoryRepeater
+   --  (rolling_history.cpp): every note that actually sounds goes into a
+   --  ring buffer, and starting the stutter snapshots the last N
+   --  microseconds of that and loops it until released. The dub delay is
+   --  not from that reference: each incoming note schedules three repeats
+   --  at the chosen division with the velocity coming down each time.
+   ------------------------------------------------------------------------
+
+   type Event_Emit_Proc is access procedure (Event : MIDI_Event);
+
+   procedure History_Push (Now_Us : UInt64; Event : MIDI_Event);
+   --  Call for every event that actually reaches the synth, whatever
+   --  produced it (live playing, loop playback, the arp). Not for the
+   --  stutter's or the delay's own output, or they would feed back into
+   --  what they are repeating.
+
+   type Stutter_Division_Kind is (S_1, S_1_2, S_1_4, S_2T,
+                                  S_1_8, S_4T, S_1_16, S_1_32);
+   --  The spec's own list for the stutter's eight buttons, which is not
+   --  the same list the arp and the delay use. S_1 is one bar; the
+   --  reference engine's comment says a stutter never needs longer.
+
+   function Img (D : Stutter_Division_Kind) return String
+   is (case D is
+          when S_1    => "1",
+          when S_1_2  => "1/2",
+          when S_1_4  => "1/4",
+          when S_2T   => "2t",
+          when S_1_8  => "1/8",
+          when S_4T   => "4t",
+          when S_1_16 => "1/16",
+          when S_1_32 => "1/32");
+
+   function Stutter_Length_Us (D : Stutter_Division_Kind; Beat_Us : UInt32)
+                               return UInt32;
+
+   function Stutter_Active return Boolean;
+
+   procedure Stutter_Start (Now_Us  : UInt64;
+                            D       : Stutter_Division_Kind;
+                            Beat_Us : UInt32);
+   --  Momentary: snapshots the history window ending now and starts
+   --  looping it. Does nothing if that window holds no events (there is
+   --  nothing to repeat), so holding a stutter button in silence is not a
+   --  way to get stuck.
+
+   procedure Stutter_Stop (Emit : Event_Emit_Proc);
+   --  Releases anything the stutter still has sounding, so letting go of
+   --  the button cannot leave a note on.
+
+   procedure Stutter_Tick (Now_Us : UInt64; Emit : Event_Emit_Proc;
+                           Max_Events : Positive := 48);
+
+   function Delay_Active return Boolean;
+   function Delay_Division return Arp_Division_Kind;
+   procedure Set_Delay (D : Arp_Division_Kind; On : Boolean);
+   --  Latching rather than momentary, per the spec. Uses the standard
+   --  divisions, the same list the arp does.
+
+   Delay_Repeats : constant := 3;
+
+   procedure Delay_Note (Now_Us  : UInt64;
+                         Event   : MIDI_Event;
+                         Beat_Us : UInt32);
+   --  Schedules this note's repeats, if the delay is on and this is a
+   --  note on. Ignores anything else.
+
+   procedure Delay_Tick (Now_Us : UInt64; Emit : Event_Emit_Proc);
+
+   procedure Clear_Effects (Emit : Event_Emit_Proc);
+   --  Silences and forgets both of the above. For leaving Looper mode or
+   --  stopping the transport, so neither can keep playing into whatever
+   --  comes next.
 
    procedure Arp_Tick (Now_Us : UInt64; Beat_Us : UInt32;
                        Emit   : Arp_Emit_Proc);

@@ -116,6 +116,31 @@ package WNM.Project is
    --  whatever BPM is set right now. Used to arm a Looper recording for a
    --  fixed, metronomic length instead of however long Rec stays held.
 
+   procedure Looper_Play_Tap;
+   --  The Play button in Four_Track_Looper mode: hands off to
+   --  WNM.Looper.Play_Tap for the whole arm/play/overdub/stop/clear/undo
+   --  state table, then brings the shared clock in line with whatever
+   --  that left the looper doing.
+
+   procedure Looper_Clear_Track;
+
+   procedure Looper_Silence_Effects;
+   --  Sends the note-offs for anything the stutter or the dub delay still
+   --  has sounding and forgets the rest. For leaving Looper mode, so
+   --  neither can keep playing into the step sequencer.
+
+   procedure Looper_FX_Press (Pad : WNM.Keyboard_Value);
+   procedure Looper_FX_Release (Pad : WNM.Keyboard_Value);
+   --  The sixteen pads while Step is held, in Four_Track_Looper mode:
+   --  pads 1-8 are the stutter at its eight divisions, momentary (held),
+   --  and pads 9-16 are the dub delay at the eight standard divisions,
+   --  latching (press again to turn it off). Both are global, across all
+   --  tracks at once, per the spec.
+   --  Edit held plus Play: clears the selected loop track, or undoes that
+   --  clear if it is already cleared and nothing has recorded over it
+   --  yet, per the spec's "all clears non-destructively prepare to
+   --  overwrite it".
+
    procedure Play_Pause_Dispatch;
    --  The Play button's handler, in place of calling
    --  WNM.Project.Step_Sequencer.Play_Pause directly. Always flips the

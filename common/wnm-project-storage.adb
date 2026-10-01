@@ -1604,6 +1604,16 @@ package body WNM.Project.Storage is
       Token : Token_Kind;
 
       Version : In_UInt;
+
+      Saw_Looper_Section : Boolean := False;
+      --  Load_Looper resets the loop engine itself, but only runs if the
+      --  file actually has that section. A file that says Four_Track_Looper
+      --  in its Global section and then has no Looper section (truncated,
+      --  hand-made, or written by a build from before that section
+      --  existed) would otherwise leave the engine pointed at whatever
+      --  Clear_Sequences just wrote, which is valid step data read as loop
+      --  state: garbage lengths, garbage slot links, a crash waiting for
+      --  the first tick. Checked after the loop below instead.
    begin
       Input.Open (Filename);
       Size := 0;
@@ -1657,6 +1667,7 @@ package body WNM.Project.Storage is
 
             when Looper_Section =>
                Load_Looper (Input);
+               Saw_Looper_Section := True;
 
             when End_Of_File =>
                exit;
@@ -1669,6 +1680,16 @@ package body WNM.Project.Storage is
          exit when Input.Status /= Ok;
 
       end loop;
+
+      if Sequencer_Mode = Four_Track_Looper
+        and then not Saw_Looper_Section
+      then
+         --  See Saw_Looper_Section above: the mode says the loop engine
+         --  owns the Steps storage, but nothing in the file ever
+         --  initialised it, so do it here rather than let the first tick
+         --  read step data as loop state.
+         WNM.Looper.Reset;
+      end if;
 
       Size := WNM.File_System.Size;
 

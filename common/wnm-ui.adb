@@ -59,6 +59,31 @@ package body WNM.UI is
    Recording_On : Boolean := False;
    Chroma_Keyboard_On : Boolean := False;
 
+   --  Edit is the faceplate name for the button this code calls Rec: the
+   --  bottom right one, the one whose hold brings up the keyboard.
+   --  Packed into one byte rather than three: this firmware has four
+   --  bytes of RAM spare in total (see LOOPER_MODE_PLAN.md) and three
+   --  plain Booleans here were enough to go over.
+   type Edit_Button_State is record
+      Held : Boolean := False;
+
+      Momentary : Boolean := False;
+      --  This hold is the one that turned the keyboard on, so releasing
+      --  turns it back off. A hold while it was already on leaves it on.
+
+      Was_Modifier : Boolean := False;
+      --  Edit has been used as a modifier for another button during this
+      --  hold, so letting go of it is not also a tap on Edit itself.
+   end record
+     with Pack;
+
+   Edit_Btn : Edit_Button_State;
+
+   --  Nothing tracks whether Play was held: a long press switches
+   --  Current_Input_Mode to Volume_BPM_Mute/Solo, so the release that
+   --  follows is handled by that mode's own branch and never reaches the
+   --  Main_Modes one that treats a release as a tap.
+
    Track_Muted : array (WNM.Tracks) of Boolean := (others => False);
    Solo_Mode_Enabled : Boolean := False;
    Solo_Track : WNM.Tracks := 1;
@@ -184,46 +209,37 @@ package body WNM.UI is
                      GUI.Menu.Root.Push_Root_Window;
 
                   when Play =>
-                     Project.Play_Pause_Dispatch;
+                     if Project.Sequencer_Mode = Project.OG_Sequencer then
+                        Project.Play_Pause_Dispatch;
+                     elsif Edit_Btn.Held then
+                        --  Edit held plus Play clears the selected loop
+                        --  track (or undoes that clear). Noting that Edit
+                        --  was used as a modifier so letting go of it
+                        --  does not also toggle the keyboard.
+                        Edit_Btn.Was_Modifier := True;
+                        Project.Looper_Clear_Track;
+                     end if;
+                     --  Otherwise Play is handled on release, so a hold
+                     --  (BPM/volume) or a double tap can take precedence
+                     --  over the plain tap. See On_Release below.
 
                   when Rec =>
-                     case Current_Input_Mode is
-                        when Step_Mode | Track_Mode =>
-                           Recording_On := not Recording_On;
+                     --  The button the faceplate calls Edit.
+                     Edit_Btn := (Held => True, Momentary => False,
+                                 Was_Modifier => False);
 
-                           --  Simplified interim: arm/finish a plain
-                           --  (non-overdub) take on whichever loop track is
-                           --  currently selected, its length fixed to
-                           --  whatever bar count that track's column on the
-                           --  Looper tab is set to. Overdub, auto-track-
-                           --  advance and the rest of the AUT column's
-                           --  meaning are a later phase
-                           --  (LOOPER_MODE_PLAN.md P6).
-                           if Project.Sequencer_Mode =
-                             Project.Four_Track_Looper
-                           then
-                              if Recording_On then
-                                 WNM.Looper.Arm_Record
-                                   (WNM.Looper.Selected_Track,
-                                    Fixed_Length_Us =>
-                                      Project.Looper_Bars_To_Us
-                                        (Positive
-                                          (WNM.Looper.Bars
-                                            (WNM.Looper.Selected_Track))),
-                                    Overdub          => False);
-                              else
-                                 declare
-                                    Dummy : constant Boolean :=
-                                      WNM.Looper.Finish_Recording
-                                        (WNM.Time.Clock);
-                                 begin
-                                    null;
-                                 end;
-                              end if;
-                           end if;
-                        when others =>
-                           null;
-                     end case;
+                     if Project.Sequencer_Mode = Project.OG_Sequencer then
+                        case Current_Input_Mode is
+                           when Step_Mode | Track_Mode =>
+                              Recording_On := not Recording_On;
+                           when others =>
+                              null;
+                        end case;
+                     end if;
+                     --  In Looper mode Edit is keyboard-mode and the
+                     --  Play modifier only: there is no step grid to
+                     --  arm recording into, that is the Play button's
+                     --  job here (Project.Looper_Play_Tap).
 
                   when Keyboard_Button =>
 
@@ -246,7 +262,12 @@ package body WNM.UI is
                when On_Long_Press =>
                   case B is
                   when Play =>
-                     --  Switch to volume/BPM config mode
+                     --  Switch to volume/BPM config mode. Also marks the
+                     --  hold so releasing Play does not then act as a
+                     --  tap: "hold play and use arrows to change bpm or
+                     --  volume, cancel play doing anything else that
+                     --  press". The release after this lands in that
+                     --  mode's own branch, not the tap handling below.
                      if Solo_Mode_Enabled then
                         Current_Input_Mode := Volume_BPM_Solo;
                      else
@@ -254,6 +275,10 @@ package body WNM.UI is
                      end if;
 
                   when Rec =>
+                     --  Held Edit shows the keyboard for as long as it is
+                     --  held, and letting go puts things back, the way
+                     --  the Track button behaves.
+                     Edit_Btn.Momentary := not Chroma_Keyboard_On;
                      Chroma_Keyboard_On := True;
 
                   when others =>
@@ -261,9 +286,42 @@ package body WNM.UI is
                   end case;
 
                when On_Release =>
-                  if Chroma_Keyboard_On and then B = Rec then
-                     Chroma_Keyboard_On := False;
-                  end if;
+                  case B is
+                  when Rec =>
+                     Edit_Btn.Held := False;
+
+                     if Edit_Btn.Momentary then
+                        --  Was a hold: put the keyboard back the way it
+                        --  was before.
+                        Chroma_Keyboard_On := False;
+                        Edit_Btn.Momentary := False;
+
+                     elsif Edit_Btn.Was_Modifier then
+                        --  Was held as a modifier for another button, so
+                        --  it was never a tap on Edit itself.
+                        null;
+
+                     elsif Project.Sequencer_Mode /= Project.OG_Sequencer
+                     then
+                        --  A tap toggles keyboard mode and it sticks,
+                        --  rather than needing to be held.
+                        Chroma_Keyboard_On := not Chroma_Keyboard_On;
+                     end if;
+
+                     Edit_Btn.Was_Modifier := False;
+
+                  when Play =>
+                     if Project.Sequencer_Mode /= Project.OG_Sequencer
+                       and then not Edit_Btn.Held
+                     then
+                        --  A plain tap (not a hold, not the Edit+Play
+                        --  combo already handled on press).
+                        Project.Looper_Play_Tap;
+                     end if;
+
+                  when others =>
+                     null;
+                  end case;
                when others =>
                   null;
             end case;
@@ -333,8 +391,26 @@ package body WNM.UI is
          when Step_Select =>
             case B is
                when Keyboard_Button =>
-                  Project.Editing_Step := To_Value (B);
-                  Select_Done := True;
+                  if Project.Sequencer_Mode = Project.Four_Track_Looper then
+                     --  "when HOLDING the step button, these 16 buttons
+                     --  will have a whole other set of special roles":
+                     --  pads 1-8 are the momentary stutter, 9-16 the
+                     --  latching dub delay. There is no step grid to
+                     --  select into in this mode, which is what these
+                     --  pads would otherwise be doing.
+                     case Evt is
+                        when On_Press =>
+                           Project.Looper_FX_Press (To_Value (B));
+                           Select_Done := True;
+                        when On_Release =>
+                           Project.Looper_FX_Release (To_Value (B));
+                        when others =>
+                           null;
+                     end case;
+                  else
+                     Project.Editing_Step := To_Value (B);
+                     Select_Done := True;
+                  end if;
 
                when Step_Button =>
                   if Evt = On_Release then
@@ -353,10 +429,14 @@ package body WNM.UI is
                         --  alone here even though WNM.Looper would just
                         --  ignore a style set on it anyway (Send_To_Synth
                         --  excludes Chord_Channel outright).
-                        if Project.Editing_Track in
-                          Tracks (WNM.Looper.Arp_Channel'First) ..
-                            Tracks (WNM.Looper.Arp_Channel'Last)
+                        if not Select_Done
+                          and then Project.Editing_Track in
+                            Tracks (WNM.Looper.Arp_Channel'First) ..
+                              Tracks (WNM.Looper.Arp_Channel'Last)
                         then
+                           --  Select_Done means a pad was used while Step
+                           --  was held (the stutter/delay surface above),
+                           --  so this was not a bare double tap on Step.
                            declare
                               use type WNM.Looper.Arp_Style_Kind;
                               use type MIDI.MIDI_Channel;

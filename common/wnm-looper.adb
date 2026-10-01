@@ -19,13 +19,14 @@ package body WNM.Looper is
    -- Event pool  --
    -----------------
 
-   Pool_Size : constant := 4300;
-   --  Picked with margin below the 4437 slots the Steps overlay actually
-   --  holds (53248 bytes / 12 bytes a slot, both numbers read off a
-   --  -gnatR2 dump rather than hand-counted), so a slightly different
-   --  compiler layout still fits. The assertion below catches it either
-   --  way instead of silently overlapping real data. For scale, the
-   --  reference engine's own pool is 3072 events.
+   Pool_Size : constant := 4000;
+   --  The Steps overlay holds 4437 slots (53248 bytes / 12 bytes a slot,
+   --  both read off a -gnatR2 dump rather than hand-counted). Sized below
+   --  that deliberately: the rest of the room goes to the stutter's
+   --  rolling history and the dub delay's pending events further down,
+   --  which have nowhere else to live. Still 30% more loop capacity than
+   --  the reference engine's own 3072. The assertion below catches a bad
+   --  estimate either way instead of silently overlapping real data.
 
    type Slot_Ref is range 0 .. Pool_Size;
    subtype Slot_Index is Slot_Ref range 0 .. Pool_Size - 1;
@@ -121,6 +122,18 @@ package body WNM.Looper is
       --  Table full: this note is not tracked. See Max_Tracked_Notes.
    end Held_Set;
 
+   function Held_Is_Set (Table : Held_Table; Channel, Note : UInt8)
+                         return Boolean
+   is
+   begin
+      for E of Table loop
+         if E.Used and then E.Channel = Channel and then E.Note = Note then
+            return True;
+         end if;
+      end loop;
+      return False;
+   end Held_Is_Set;
+
    procedure Held_Clear (Table : in out Held_Table; Channel, Note : UInt8) is
    begin
       for E of Table loop
@@ -205,6 +218,74 @@ package body WNM.Looper is
    type Arp_Channel_Array is array (Arp_Channel) of Arp_Channel_State;
 
    ---------------------------------
+   -- Stutter and delay state     --
+   ---------------------------------
+
+   History_Capacity : constant := 128;
+   --  The reference engine keeps 2048 of these. This has the Steps
+   --  overlay's leftovers to work with instead, so it keeps the most
+   --  recent 128 events and drops the oldest past that. A stutter window
+   --  longer and busier than 128 events (a full bar of 1/32 arp across
+   --  several channels) repeats only the newest 128 of it, which thins
+   --  out rather than breaking.
+
+   Delay_Pending_Capacity : constant := 48;
+   --  Three repeats, each needing an on and an off, so this holds eight
+   --  notes' worth of repeats in flight at once.
+
+   type Timed_Event is record
+      At_Us : UInt32 := 0;
+      --  The low 32 bits of the microsecond clock, not the full 64. All
+      --  this is ever used for is differences over a window of at most a
+      --  bar or two, and unsigned subtraction stays correct across the
+      --  wrap, so the top half is not worth the bytes.
+      Event : MIDI_Event;
+   end record
+     with Pack;
+
+   type History_Array is array (0 .. History_Capacity - 1) of Timed_Event;
+   type Delay_Array is array (1 .. Delay_Pending_Capacity) of Timed_Event;
+
+   type Delay_Slot_Used is array (1 .. Delay_Pending_Capacity) of Boolean
+     with Pack;
+
+   type Effects_State is record
+      History       : History_Array;
+      History_Next  : Natural;
+      --  Where the next push goes, wrapping. Plain ring buffer with a
+      --  count rather than the reference's monotonic sequence numbers and
+      --  binary search: at 128 entries a linear scan is nothing, and it
+      --  saves four bytes a slot.
+      History_Count : Natural;
+
+      Stutter_On         : Boolean;
+      Stutter_Cursor     : Natural;
+      --  How many of the captured window's events have been emitted in
+      --  the current repeat, so a tick never re-emits what an earlier
+      --  tick in the same repeat already did. The reference engine keeps
+      --  a snapshot cursor for exactly this; relying on the sounding
+      --  table instead does not work, because a note-on has to be able
+      --  to retrigger a note that is already on.
+      Stutter_Length_Us  : UInt32;
+      Stutter_Cycle_Us   : UInt32;
+      --  Start of the current repeat cycle, same clipped 32-bit clock.
+      Stutter_Window_Us  : UInt32;
+      --  Start of the captured window, so replay can turn each event's
+      --  absolute stamp into an offset within the loop.
+      Stutter_Sounding   : Held_Table;
+      --  What the stutter currently has on, so a wrap or a release can
+      --  put every one of them back down. Without this a repeating note
+      --  on sticks forever, which is what the reference's own
+      --  emitNoteSafe exists to prevent.
+
+      Delay_On       : Boolean;
+      Delay_Div      : Arp_Division_Kind;
+      Delay_Pending  : Delay_Array;
+      Delay_Used     : Delay_Slot_Used;
+   end record
+     with Pack;
+
+   ---------------------------------
    -- The engine's whole overlay  --
    ---------------------------------
 
@@ -251,8 +332,17 @@ package body WNM.Looper is
 
       Auto_Setting : Auto_Kind;
 
+      --  Play button double-tap memory, see Play_Tap. Here rather than in
+      --  the caller because this is the one place with RAM to spare.
+      Play_Tap_Us    : UInt64;
+      Play_Tap_Track : Loop_Track;
+      Play_Tap_Icon  : Track_Icon;
+      Play_Tap_Valid : Boolean;
+
       Arp       : Arp_Channel_Array;
       Arp_Seed  : UInt32;
+
+      FX : Effects_State;
       --  A plain LCG seed for Arp_Random, not anything cryptographic:
       --  just needs to not repeat obviously over a few bars.
    end record
@@ -366,9 +456,28 @@ package body WNM.Looper is
       Overlay_Ptr.Is_Overdubbing := False;
       Overlay_Ptr.Record_Start_Count := 0;
       Overlay_Ptr.Auto_Setting := Auto_Off;
+      Overlay_Ptr.Play_Tap_Us := 0;
+      Overlay_Ptr.Play_Tap_Track := Loop_Track'First;
+      Overlay_Ptr.Play_Tap_Icon := Empty;
+      Overlay_Ptr.Play_Tap_Valid := False;
       Held_Reset (Overlay_Ptr.Record_Held);
       Overlay_Ptr.Arp := (others => (others => <>));
       Overlay_Ptr.Arp_Seed := 12345;
+
+      Overlay_Ptr.FX.History_Next := 0;
+      Overlay_Ptr.FX.History_Count := 0;
+      Overlay_Ptr.FX.Stutter_On := False;
+      Overlay_Ptr.FX.Stutter_Cursor := 0;
+      Overlay_Ptr.FX.Stutter_Length_Us := 0;
+      Overlay_Ptr.FX.Stutter_Cycle_Us := 0;
+      Overlay_Ptr.FX.Stutter_Window_Us := 0;
+      Held_Reset (Overlay_Ptr.FX.Stutter_Sounding);
+      Overlay_Ptr.FX.Delay_On := False;
+      Overlay_Ptr.FX.Delay_Div := D_1_8;
+      Overlay_Ptr.FX.Delay_Used := (others => False);
+      --  History contents are left alone: every slot past History_Count
+      --  is unreachable, and the ones inside it are overwritten before
+      --  they are read.
    end Reset;
 
    -------------------
@@ -1440,6 +1549,94 @@ package body WNM.Looper is
       return Stopped;
    end Icon;
 
+   --------------
+   -- Play_Tap --
+   --------------
+
+   procedure Play_Tap (Now_Us           : UInt64;
+                       Fixed_Length_Us  : UInt32;
+                       Release          : Release_Proc;
+                       Double_Window_Us : UInt32 := 350_000)
+   is
+      T : constant Loop_Track := Overlay_Ptr.Selected;
+
+      Is_Double : constant Boolean :=
+        Overlay_Ptr.Play_Tap_Valid
+          and then Overlay_Ptr.Play_Tap_Track = T
+          and then Now_Us >= Overlay_Ptr.Play_Tap_Us
+          and then Now_Us - Overlay_Ptr.Play_Tap_Us
+                     <= UInt64 (Double_Window_Us);
+
+      Dummy : Boolean;
+   begin
+      if Is_Double then
+         --  Undo whatever the first tap just did, then apply the
+         --  double-tap meaning for the state that first tap saw.
+         case Overlay_Ptr.Play_Tap_Icon is
+            when Empty =>
+               --  First tap armed it. Double tap means undo the clear.
+               Cancel_Recording;
+               Undo_Clear (T);
+
+            when Stopped =>
+               --  First tap started it playing. Double tap means clear.
+               Stop (Release);
+               Safe_Clear (T, Release);
+
+            when Playing_Icon =>
+               --  First tap started an overdub. Double tap means stop.
+               Cancel_Recording;
+               Stop (Release);
+
+            when Recording_Icon =>
+               --  First tap finished the take. Double tap means stop.
+               Stop (Release);
+
+            when Armed =>
+               --  First tap unarmed it, and the spec gives no double-tap
+               --  meaning from armed. Leave it unarmed.
+               null;
+         end case;
+
+         --  Consumed, so a third tap starts a fresh single tap rather
+         --  than chaining off this one.
+         Overlay_Ptr.Play_Tap_Valid := False;
+         return;
+      end if;
+
+      Overlay_Ptr.Play_Tap_Icon := Icon (T);
+      Overlay_Ptr.Play_Tap_Track := T;
+      Overlay_Ptr.Play_Tap_Us := Now_Us;
+      Overlay_Ptr.Play_Tap_Valid := True;
+
+      case Overlay_Ptr.Play_Tap_Icon is
+         when Empty =>
+            Arm_Record (T, Fixed_Length_Us, Overdub => False);
+
+         when Armed =>
+            Cancel_Recording;
+
+         when Stopped =>
+            --  Resume falls back to Start on its own when there is
+            --  nothing paused to resume.
+            Resume (Now_Us);
+
+         when Playing_Icon =>
+            --  Overdub starts recording right away rather than waiting
+            --  for a first note, so no fixed length: it runs until it is
+            --  switched back off.
+            Arm_Record (T, 0, Overdub => True);
+
+         when Recording_Icon =>
+            Dummy := Finish_Recording (Now_Us);
+            if not Overlay_Ptr.Is_Playing then
+               --  A fresh take rather than an overdub: finishing it is
+               --  also what starts it looping.
+               Start (Now_Us);
+            end if;
+      end case;
+   end Play_Tap;
+
    -----------
    -- Bars  --
    -----------
@@ -1624,6 +1821,385 @@ package body WNM.Looper is
       Overlay_Ptr.Arp_Seed := Overlay_Ptr.Arp_Seed * 1_664_525 + 1_013_904_223;
       return Overlay_Ptr.Arp_Seed;
    end Arp_Next_Rnd;
+
+   ------------------------------------------------------------------------
+   --  Stutter and dub delay
+   ------------------------------------------------------------------------
+
+   function Clock_32 (Now_Us : UInt64) return UInt32
+   is (UInt32 (Now_Us and 16#FFFF_FFFF#));
+   --  See Timed_Event.At_Us: only differences matter, and those stay
+   --  correct across the 32-bit wrap.
+
+   ------------------------
+   -- Stutter_Length_Us  --
+   ------------------------
+
+   function Stutter_Length_Us (D : Stutter_Division_Kind; Beat_Us : UInt32)
+                               return UInt32
+   is
+      Bar_Us : constant UInt32 := Beat_Us * UInt32 (Beats_Per_Bar);
+   begin
+      case D is
+         when S_1    => return Bar_Us;
+         when S_1_2  => return Bar_Us / 2;
+         when S_1_4  => return Bar_Us / 4;
+         when S_2T   => return (Bar_Us * 2) / 3;  -- half-bar triplet
+         when S_1_8  => return Bar_Us / 8;
+         when S_4T   => return Bar_Us / 3;        -- quarter-bar triplet
+         when S_1_16 => return Bar_Us / 16;
+         when S_1_32 => return Bar_Us / 32;
+      end case;
+   end Stutter_Length_Us;
+
+   ------------------
+   -- History_Push --
+   ------------------
+
+   procedure History_Push (Now_Us : UInt64; Event : MIDI_Event) is
+      FX : Effects_State renames Overlay_Ptr.FX;
+   begin
+      if FX.Stutter_On then
+         --  Frozen while a stutter is running, so the window it captured
+         --  cannot be overwritten underneath it by whatever is still
+         --  playing. The reference engine instead detects overwritten
+         --  slots through monotonic sequence numbers and gives up on the
+         --  repeat; not writing at all is cheaper and keeps the repeat
+         --  intact, at the cost of the moment just before a release not
+         --  being in history for an immediately following stutter.
+         return;
+      end if;
+
+      FX.History (FX.History_Next) := (At_Us => Clock_32 (Now_Us),
+                                       Event => Event);
+      FX.History_Next := (FX.History_Next + 1) mod History_Capacity;
+      if FX.History_Count < History_Capacity then
+         FX.History_Count := FX.History_Count + 1;
+      end if;
+   end History_Push;
+
+   --------------------
+   -- Stutter_Active --
+   --------------------
+
+   function Stutter_Active return Boolean is (Overlay_Ptr.FX.Stutter_On);
+
+   -------------------------
+   -- Stutter_Release_All --
+   -------------------------
+
+   procedure Stutter_Release_All (Emit : Event_Emit_Proc) is
+      FX : Effects_State renames Overlay_Ptr.FX;
+   begin
+      for E of FX.Stutter_Sounding loop
+         if E.Used then
+            if Emit /= null then
+               Emit ((Status => 16#80# + E.Channel,
+                     Data_1 => E.Note,
+                     Data_2 => 0));
+            end if;
+            E.Used := False;
+         end if;
+      end loop;
+   end Stutter_Release_All;
+
+   -------------------
+   -- Stutter_Start --
+   -------------------
+
+   procedure Stutter_Start (Now_Us  : UInt64;
+                            D       : Stutter_Division_Kind;
+                            Beat_Us : UInt32)
+   is
+      FX     : Effects_State renames Overlay_Ptr.FX;
+      Length : constant UInt32 := Stutter_Length_Us (D, Beat_Us);
+      Now_32 : constant UInt32 := Clock_32 (Now_Us);
+      Found  : Boolean := False;
+   begin
+      if Length = 0 or else FX.History_Count = 0 then
+         return;
+      end if;
+
+      --  Anything to repeat in that window? Same check as the
+      --  reference's "snapshot.empty() -> do not activate": holding a
+      --  stutter button during silence should do nothing rather than
+      --  latch onto an empty loop.
+      for I in 0 .. FX.History_Count - 1 loop
+         declare
+            Idx : constant Natural :=
+              (FX.History_Next + History_Capacity - 1 - I) mod
+                History_Capacity;
+         begin
+            exit when Now_32 - FX.History (Idx).At_Us > Length;
+            Found := True;
+         end;
+      end loop;
+
+      if not Found then
+         return;
+      end if;
+
+      FX.Stutter_On := True;
+      FX.Stutter_Length_Us := Length;
+      FX.Stutter_Window_Us := Now_32 - Length;
+      FX.Stutter_Cycle_Us := Now_32;
+      FX.Stutter_Cursor := 0;
+      Held_Reset (FX.Stutter_Sounding);
+   end Stutter_Start;
+
+   ------------------
+   -- Stutter_Stop --
+   ------------------
+
+   procedure Stutter_Stop (Emit : Event_Emit_Proc) is
+   begin
+      if Overlay_Ptr.FX.Stutter_On then
+         Stutter_Release_All (Emit);
+      end if;
+      Overlay_Ptr.FX.Stutter_On := False;
+   end Stutter_Stop;
+
+   ------------------
+   -- Stutter_Tick --
+   ------------------
+
+   procedure Stutter_Tick (Now_Us : UInt64; Emit : Event_Emit_Proc;
+                           Max_Events : Positive := 48)
+   is
+      FX      : Effects_State renames Overlay_Ptr.FX;
+      Now_32  : constant UInt32 := Clock_32 (Now_Us);
+      Emitted : Natural := 0;
+      Seen    : Natural := 0;
+      --  How many in-window events this pass has walked past, so it can
+      --  be compared against the cursor to find where to resume.
+   begin
+      if not FX.Stutter_On or else FX.Stutter_Length_Us = 0
+        or else Emit = null
+      then
+         return;
+      end if;
+
+      --  Wrapped into the next repeat: put down everything this cycle
+      --  left sounding and start the window over, exactly as the
+      --  reference does at its own cycle boundary.
+      if Now_32 - FX.Stutter_Cycle_Us >= FX.Stutter_Length_Us then
+         Stutter_Release_All (Emit);
+         declare
+            Cycles : constant UInt32 :=
+              (Now_32 - FX.Stutter_Cycle_Us) / FX.Stutter_Length_Us;
+         begin
+            FX.Stutter_Cycle_Us :=
+              FX.Stutter_Cycle_Us + Cycles * FX.Stutter_Length_Us;
+         end;
+         FX.Stutter_Cursor := 0;
+      end if;
+
+      declare
+         Elapsed : constant UInt32 := Now_32 - FX.Stutter_Cycle_Us;
+      begin
+         --  The captured window, oldest first. History writes are frozen
+         --  while this runs (see History_Push), so this enumeration is
+         --  stable from tick to tick and the cursor below stays valid.
+         for I in 0 .. FX.History_Count - 1 loop
+            exit when Emitted >= Max_Events;
+
+            declare
+               Idx : constant Natural :=
+                 (FX.History_Next + History_Capacity - FX.History_Count + I)
+                   mod History_Capacity;
+               Slot   : Timed_Event renames FX.History (Idx);
+               Offset : constant UInt32 := Slot.At_Us - FX.Stutter_Window_Us;
+               Kind   : constant UInt8 := Status_Type (Slot.Event.Status);
+               Chan   : constant UInt8 := Status_Channel (Slot.Event.Status);
+            begin
+               --  Older than the window, or past its end.
+               if Offset > FX.Stutter_Length_Us then
+                  goto Next_Slot;
+               end if;
+
+               --  In the window and in time order, so once one is not due
+               --  yet, neither is anything after it.
+               exit when Offset > Elapsed;
+
+               Seen := Seen + 1;
+               if Seen <= FX.Stutter_Cursor then
+                  --  Already emitted earlier in this same repeat.
+                  goto Next_Slot;
+               end if;
+
+               if Kind = 16#90# and then Slot.Event.Data_2 > 0 then
+                  if Held_Is_Set (FX.Stutter_Sounding, Chan,
+                                 Slot.Event.Data_1)
+                  then
+                     --  Already sounding: retrigger rather than skip, the
+                     --  way the reference's emitNoteSafe does. Skipping
+                     --  would collapse repeated hits of the same drum
+                     --  inside the window down to one, which is most of
+                     --  what a stutter is for.
+                     Emit ((Status => 16#80# + Chan,
+                           Data_1 => Slot.Event.Data_1,
+                           Data_2 => 0));
+                     Emitted := Emitted + 1;
+                  end if;
+
+                  Held_Set (FX.Stutter_Sounding, Chan, Slot.Event.Data_1,
+                           Slot.Event.Data_2);
+                  Emit (Slot.Event);
+                  Emitted := Emitted + 1;
+
+               elsif Kind = 16#80#
+                 or else (Kind = 16#90# and then Slot.Event.Data_2 = 0)
+               then
+                  --  A note-off for something this repeat never turned on
+                  --  is dropped, so the window starting mid-note cannot
+                  --  send a stray off into whatever else is playing that
+                  --  note.
+                  if Held_Is_Set (FX.Stutter_Sounding, Chan,
+                                 Slot.Event.Data_1)
+                  then
+                     Held_Clear (FX.Stutter_Sounding, Chan,
+                                Slot.Event.Data_1);
+                     Emit ((Status => 16#80# + Chan,
+                           Data_1 => Slot.Event.Data_1,
+                           Data_2 => 0));
+                     Emitted := Emitted + 1;
+                  end if;
+               end if;
+
+               FX.Stutter_Cursor := Seen;
+            end;
+            <<Next_Slot>>
+         end loop;
+      end;
+   end Stutter_Tick;
+
+   ------------------
+   -- Delay_Active --
+   ------------------
+
+   function Delay_Active return Boolean is (Overlay_Ptr.FX.Delay_On);
+
+   function Delay_Division return Arp_Division_Kind
+   is (Overlay_Ptr.FX.Delay_Div);
+
+   ---------------
+   -- Set_Delay --
+   ---------------
+
+   procedure Set_Delay (D : Arp_Division_Kind; On : Boolean) is
+   begin
+      Overlay_Ptr.FX.Delay_Div := D;
+      Overlay_Ptr.FX.Delay_On := On;
+   end Set_Delay;
+
+   ----------------
+   -- Delay_Note --
+   ----------------
+
+   procedure Delay_Note (Now_Us  : UInt64;
+                         Event   : MIDI_Event;
+                         Beat_Us : UInt32)
+   is
+      FX    : Effects_State renames Overlay_Ptr.FX;
+      Step  : constant UInt32 := Division_Us (FX.Delay_Div, Beat_Us);
+      Now_32 : constant UInt32 := Clock_32 (Now_Us);
+      Gate  : constant UInt32 := (Step * 3) / 4;
+      --  No note-off to correlate against at this point, so each repeat
+      --  gets a gate of three quarters of the delay time. Long enough to
+      --  sound like the original, short enough never to run into its own
+      --  next repeat.
+
+      Vel : UInt8 := Event.Data_2;
+
+      procedure Schedule (At_32 : UInt32; E : MIDI_Event) is
+      begin
+         for I in FX.Delay_Pending'Range loop
+            if not FX.Delay_Used (I) then
+               FX.Delay_Pending (I) := (At_Us => At_32, Event => E);
+               FX.Delay_Used (I) := True;
+               return;
+            end if;
+         end loop;
+         --  Full: this repeat is dropped rather than displacing one
+         --  already scheduled. See Delay_Pending_Capacity.
+      end Schedule;
+   begin
+      if not FX.Delay_On
+        or else Step = 0
+        or else Status_Type (Event.Status) /= 16#90#
+        or else Event.Data_2 = 0
+      then
+         return;
+      end if;
+
+      for Repeat in 1 .. Delay_Repeats loop
+         --  Down to roughly 60% each time, so three repeats land near
+         --  60/36/21% of the original.
+         Vel := UInt8 ((Natural (Vel) * 3) / 5);
+         exit when Vel = 0;
+
+         declare
+            At_On : constant UInt32 := Now_32 + UInt32 (Repeat) * Step;
+         begin
+            Schedule (At_On, (Status => Event.Status,
+                             Data_1 => Event.Data_1,
+                             Data_2 => Vel));
+            Schedule (At_On + Gate,
+                     (Status => 16#80# + Status_Channel (Event.Status),
+                      Data_1 => Event.Data_1,
+                      Data_2 => 0));
+         end;
+      end loop;
+   end Delay_Note;
+
+   ----------------
+   -- Delay_Tick --
+   ----------------
+
+   procedure Delay_Tick (Now_Us : UInt64; Emit : Event_Emit_Proc) is
+      FX     : Effects_State renames Overlay_Ptr.FX;
+      Now_32 : constant UInt32 := Clock_32 (Now_Us);
+   begin
+      if Emit = null then
+         return;
+      end if;
+
+      for I in FX.Delay_Pending'Range loop
+         if FX.Delay_Used (I) then
+            --  Due when now has caught up to it. The subtraction is the
+            --  32-bit-wrap-safe way round: a not-yet-due event gives a
+            --  huge unsigned difference the other way.
+            if Now_32 - FX.Delay_Pending (I).At_Us
+                 < UInt32'Last / 2
+            then
+               Emit (FX.Delay_Pending (I).Event);
+               FX.Delay_Used (I) := False;
+            end if;
+         end if;
+      end loop;
+   end Delay_Tick;
+
+   --------------------
+   -- Clear_Effects  --
+   --------------------
+
+   procedure Clear_Effects (Emit : Event_Emit_Proc) is
+      FX : Effects_State renames Overlay_Ptr.FX;
+   begin
+      Stutter_Stop (Emit);
+
+      --  Anything still scheduled gets its note-offs sent and the rest
+      --  dropped, so nothing is left hanging.
+      for I in FX.Delay_Pending'Range loop
+         if FX.Delay_Used (I)
+           and then Status_Type (FX.Delay_Pending (I).Event.Status) = 16#80#
+           and then Emit /= null
+         then
+            Emit (FX.Delay_Pending (I).Event);
+         end if;
+         FX.Delay_Used (I) := False;
+      end loop;
+   end Clear_Effects;
 
    --------------
    -- Arp_Tick --

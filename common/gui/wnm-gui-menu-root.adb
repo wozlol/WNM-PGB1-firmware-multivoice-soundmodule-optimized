@@ -78,6 +78,11 @@ package body WNM.GUI.Menu.Root is
       if M = WNM.Project.Sequencer_Mode then
          return;
       end if;
+      --  Anything the stutter or dub delay still has sounding gets its
+      --  note-offs now, while the engine that knows about them is still
+      --  the live one.
+      WNM.Project.Looper_Silence_Effects;
+
       --  Both directions share the same RAM (see WNM.Looper), so every
       --  switch resets both sides: the one taking over starts clean, and
       --  the one being left starts clean too, for next time.
