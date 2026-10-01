@@ -277,8 +277,35 @@ mode, a cosmetic gap for P6 rather than a safety one.
 - [ ] P8: Channel 10 special notes 36-50.
 - [ ] P9: Multi-select-while-holding-a-track-button, hat REL-while-held
       trick, chromatic-pulse-while-held trick.
-- [ ] P10: Persistence of loop event data and settings with the project
-      (token format in `wnm-project-storage.adb`).
+- [x] P10: Persistence of loop event data and settings with the project.
+      New `Looper_Section`/`Looper_Track` tokens in the storage format
+      (`wnm-project-storage.ads/.adb`). Per track: length, stored length,
+      generation, muted/solo/hidden, start offset, bars, quantize (the
+      last two as self-describing ID/value pairs, `Looper_Track_Settings`,
+      same forward-compatibility reasoning as every other settings
+      section), then an event count and that many raw
+      (at_us, status, data1, data2) quads, since an event has no fixed
+      identifier to attach a settings ID to. The shared AUT setting is one
+      raw value right after the section token.
+      `WNM.Looper` gained the matching save/restore primitives
+      (`Visit_Events`, `Track_Event_Count`, `Restore_Event`,
+      `Set_Restored_Track_State`, plus plain getters for every field
+      `Set_Restored_Track_State` doesn't cover going the other way), all
+      direct ports of the reference engine's own API minus the live-import
+      variants (`beginImport`/etc), which exist there for bringing in an
+      external take while something may already be playing; loading from
+      project storage happens before anything is playing, so the simpler
+      pair is enough.
+      `Save` writes the Looper section only in Four_Track_Looper mode
+      (mirroring the existing Patterns/Steps guard), `Load` always calls
+      `WNM.Looper.Reset` at the start of `Load_Looper` so restored content
+      starts from a clean pool regardless of what was loaded before.
+      Compiles clean, RAM at 258044 (8 bytes under the 258048 cap, same
+      margin the firmware had before this whole project started).
+      Not yet tested on hardware (nothing in this session has been). The
+      one thing genuinely unverified by construction: whether a save
+      immediately followed by a load reproduces the exact same engine
+      state, since nothing can run the Ada code to check that tonight.
 
 Each section below is updated as that phase is actually built. A phase with
 no entry below has not been started: treat its line above as unchecked and

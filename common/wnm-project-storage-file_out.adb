@@ -60,6 +60,27 @@ package body WNM.Project.Storage.File_Out is
       This.Push (FX_Settings);
    end Start_FX_Settings;
 
+   ---------------------------
+   -- Start_Looper_Section  --
+   ---------------------------
+
+   procedure Start_Looper_Section (This : in out Instance) is
+   begin
+      This.Push (Looper_Section);
+   end Start_Looper_Section;
+
+   -------------------------
+   -- Start_Looper_Track  --
+   -------------------------
+
+   procedure Start_Looper_Track (This : in out Instance;
+                                 T    : WNM.Looper.Loop_Track)
+   is
+   begin
+      This.Push (Looper_Track);
+      This.Push (Out_UInt (T));
+   end Start_Looper_Track;
+
    --------------------------
    -- Start_Track_Settings --
    --------------------------
@@ -185,6 +206,16 @@ package body WNM.Project.Storage.File_Out is
 
    procedure Push (This : in out Instance; A : Step_Settings) is
       procedure Push_G is new Push_Gen (Step_Settings);
+   begin
+      Push_G (Parent (This), A);
+   end Push;
+
+   ----------
+   -- Push --
+   ----------
+
+   procedure Push (This : in out Instance; A : Looper_Track_Settings) is
+      procedure Push_G is new Push_Gen (Looper_Track_Settings);
    begin
       Push_G (Parent (This), A);
    end Push;

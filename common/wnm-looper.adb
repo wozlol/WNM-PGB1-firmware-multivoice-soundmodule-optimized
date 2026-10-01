@@ -1263,6 +1263,83 @@ package body WNM.Looper is
       return Result;
    end Newest_Populated_Track;
 
+   -------------------
+   -- Visit_Events  --
+   -------------------
+
+   function Track_Event_Count (Track : Loop_Track) return Natural
+   is (Overlay_Ptr.Tracks (Track).Count);
+
+   procedure Visit_Events (Track : Loop_Track; Visit : Emit_Proc) is
+      Slot : Slot_Ref := Overlay_Ptr.Tracks (Track).Head;
+   begin
+      if Visit = null then
+         return;
+      end if;
+      while Slot /= No_Slot loop
+         Visit (Track, Overlay_Ptr.Event_Pool (Slot).At_Us,
+               Overlay_Ptr.Event_Pool (Slot).Event);
+         Slot := Overlay_Ptr.Event_Pool (Slot).Next;
+      end loop;
+   end Visit_Events;
+
+   --------------------
+   -- Restore_Event  --
+   --------------------
+
+   function Restore_Event (Track : Loop_Track; At_Us : UInt32;
+                           Event : MIDI_Event) return Boolean
+   is (Insert_Event (Track, At_Us, Event));
+
+   --------------------------------
+   -- Set_Restored_Track_State  --
+   --------------------------------
+
+   procedure Set_Restored_Track_State (Track              : Loop_Track;
+                                       Length_Us          : UInt32;
+                                       Stored_Length_Us   : UInt32;
+                                       Generation         : UInt16;
+                                       Muted, Solo, Hidden : Boolean;
+                                       Start_Offset_Us    : UInt32 := 0)
+   is
+      State : Track_State renames Overlay_Ptr.Tracks (Track);
+   begin
+      State.Start_Offset_Us :=
+        (if Length_Us > 0 then Start_Offset_Us mod Length_Us else 0);
+      State.Length_Us := Length_Us;
+      State.Stored_Length_Us :=
+        (if Stored_Length_Us >= Length_Us then Stored_Length_Us
+         else Length_Us);
+      State.Generation := Generation;
+      State.Muted := Muted;
+      State.Solo := Solo;
+      State.Hidden := Hidden;
+      if Generation > Overlay_Ptr.Generation_Counter then
+         Overlay_Ptr.Generation_Counter := Generation;
+      end if;
+   end Set_Restored_Track_State;
+
+   function Track_Length_Us (Track : Loop_Track) return UInt32
+   is (Overlay_Ptr.Tracks (Track).Length_Us);
+
+   function Track_Stored_Length_Us (Track : Loop_Track) return UInt32
+   is (Overlay_Ptr.Tracks (Track).Stored_Length_Us);
+
+   function Track_Generation (Track : Loop_Track) return UInt16
+   is (Overlay_Ptr.Tracks (Track).Generation);
+
+   function Track_Muted (Track : Loop_Track) return Boolean
+   is (Overlay_Ptr.Tracks (Track).Muted);
+
+   function Track_Solo (Track : Loop_Track) return Boolean
+   is (Overlay_Ptr.Tracks (Track).Solo);
+
+   function Track_Hidden (Track : Loop_Track) return Boolean
+   is (Overlay_Ptr.Tracks (Track).Hidden);
+
+   function Track_Start_Offset_Us (Track : Loop_Track) return UInt32
+   is (Overlay_Ptr.Tracks (Track).Start_Offset_Us);
+
    ------------
    -- Icon   --
    ------------

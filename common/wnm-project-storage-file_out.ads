@@ -20,6 +20,8 @@
 -------------------------------------------------------------------------------
 
 with WNM.File_System.LEB128_File_Out;
+with WNM.Looper;
+with HAL;
 
 private package WNM.Project.Storage.File_Out is
 
@@ -35,6 +37,9 @@ private package WNM.Project.Storage.File_Out is
    procedure Start_Mixer (This : in out Instance);
 
    procedure Start_FX_Settings (This : in out Instance);
+
+   procedure Start_Looper_Section (This : in out Instance);
+   procedure Start_Looper_Track (This : in out Instance; T : WNM.Looper.Loop_Track);
 
    procedure Start_Track_Settings (This : in out Instance;
                                    T : Tracks);
@@ -57,6 +62,7 @@ private package WNM.Project.Storage.File_Out is
    procedure End_File (This : in out Instance);
 
    procedure Push (This : in out Instance; A : Step_Settings);
+   procedure Push (This : in out Instance; A : Looper_Track_Settings);
    procedure Push (This : in out Instance; A : Track_Settings);
    procedure Push (This : in out Instance; A : Pattern_Settings);
    procedure Push (This : in out Instance; A : Part_Settings);

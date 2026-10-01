@@ -50,6 +50,8 @@ private
                        User_Waveform,
                        Mixer,
                        FX_Settings,
+                       Looper_Section,
+                       Looper_Track,
 
                        End_Of_File,
                        End_Of_Section);
@@ -67,7 +69,27 @@ private
                        User_Waveform             => 10,
                        Mixer                     => 11,
                        FX_Settings               => 12,
+                       Looper_Section            => 13,
+                       Looper_Track              => 14,
                        End_Of_File               => End_Of_Section_Value - 1,
                        End_Of_Section            => End_Of_Section_Value);
+
+   --  One loop track's own settings, everything an event list alone does
+   --  not capture. Self-describing ID/value pairs, same reasoning as every
+   --  other settings section in this format: a future version can add one
+   --  without breaking old files. The event list that follows is not
+   --  settings in this sense (there is no fixed identifier to attach to
+   --  "the 40th event"), so it is a plain count and then that many raw
+   --  (at_us, status, data1, data2) quads instead.
+   type Looper_Track_Settings is (LT_Length_Us,
+                                  LT_Stored_Length_Us,
+                                  LT_Generation,
+                                  LT_Muted,
+                                  LT_Solo,
+                                  LT_Hidden,
+                                  LT_Start_Offset_Us,
+                                  LT_Bars,
+                                  LT_Quant,
+                                  LT_Event_Count);
 
 end WNM.Project.Storage;

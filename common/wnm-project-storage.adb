@@ -95,6 +95,7 @@ with WNM.File_System.LEB128_File_In; use WNM.File_System.LEB128_File_In;
 with WNM.Project.Storage.File_Out;
 with WNM.Project.Storage.File_In;
 with WNM.File_System; use WNM.File_System;
+with WNM.Looper;
 
 package body WNM.Project.Storage is
 
@@ -652,6 +653,86 @@ package body WNM.Project.Storage is
       Output.End_Section;
    end Save_FX;
 
+   -------------------
+   -- Save_Looper   --
+   -------------------
+
+   --  WNM.Looper.Visit_Events calls back with no way to pass this specific
+   --  Output instance through (Emit_Proc has the same shape Tick's own
+   --  callback does, on purpose, and Tick has no such instance to pass
+   --  either), so the instance currently being written to is kept here
+   --  for the callback to reach, valid only for the duration of one
+   --  Save_Looper call.
+   Looper_Save_Output : access File_Out.Instance := null;
+
+   procedure Save_Looper_Event (Track : WNM.Looper.Loop_Track;
+                                At_Us : HAL.UInt32;
+                                Event : WNM.Looper.MIDI_Event)
+   is
+      pragma Unreferenced (Track);
+   begin
+      if Looper_Save_Output = null then
+         return;
+      end if;
+      Looper_Save_Output.Push (Out_UInt (At_Us));
+      Looper_Save_Output.Push (Out_UInt (Event.Status));
+      Looper_Save_Output.Push (Out_UInt (Event.Data_1));
+      Looper_Save_Output.Push (Out_UInt (Event.Data_2));
+   end Save_Looper_Event;
+
+   procedure Save_Looper (Output : in out File_Out.Instance) is
+   begin
+      Output.Start_Looper_Section;
+      Output.Push (Out_UInt (WNM.Looper.Auto_Kind'Pos
+                     (WNM.Looper.Auto_Setting)));
+
+      for T in WNM.Looper.Loop_Track loop
+         Output.Start_Looper_Track (T);
+
+         Output.Push (LT_Length_Us);
+         Output.Push (Out_UInt (WNM.Looper.Track_Length_Us (T)));
+
+         Output.Push (LT_Stored_Length_Us);
+         Output.Push (Out_UInt (WNM.Looper.Track_Stored_Length_Us (T)));
+
+         Output.Push (LT_Generation);
+         Output.Push (Out_UInt (WNM.Looper.Track_Generation (T)));
+
+         Output.Push (LT_Muted);
+         Output.Push (WNM.Looper.Track_Muted (T));
+
+         Output.Push (LT_Solo);
+         Output.Push (WNM.Looper.Track_Solo (T));
+
+         Output.Push (LT_Hidden);
+         Output.Push (WNM.Looper.Track_Hidden (T));
+
+         Output.Push (LT_Start_Offset_Us);
+         Output.Push (Out_UInt (WNM.Looper.Track_Start_Offset_Us (T)));
+
+         Output.Push (LT_Bars);
+         Output.Push (Out_UInt (WNM.Looper.Bars (T)));
+
+         Output.Push (LT_Quant);
+         Output.Push (Out_UInt
+                       (WNM.Looper.Quantize_Kind'Pos
+                         (WNM.Looper.Quantize (T))));
+
+         Output.Push (LT_Event_Count);
+         Output.Push (Out_UInt (WNM.Looper.Track_Event_Count (T)));
+
+         Looper_Save_Output := Output'Unchecked_Access;
+         WNM.Looper.Visit_Events (T, Save_Looper_Event'Access);
+         Looper_Save_Output := null;
+
+         Output.End_Section;
+
+         exit when Output.Status /= Ok;
+      end loop;
+
+      Output.End_Section;
+   end Save_Looper;
+
    ----------
    -- Save --
    ----------
@@ -703,6 +784,12 @@ package body WNM.Project.Storage is
         and then Sequencer_Mode = OG_Sequencer
       then
          Save_Steps (Output);
+      end if;
+
+      if Output.Status = Ok
+        and then Sequencer_Mode = Four_Track_Looper
+      then
+         Save_Looper (Output);
       end if;
 
       if Output.Status = Ok then
@@ -1345,6 +1432,166 @@ package body WNM.Project.Storage is
       end loop;
    end Load_FX;
 
+   ------------------------
+   -- Load_Looper_Track  --
+   ------------------------
+
+   procedure Load_Looper_Track (Input : in out File_In.Instance;
+                                Track : WNM.Looper.Loop_Track)
+   is
+      procedure To_LT_Settings is new Convert_To_Enum (Looper_Track_Settings);
+      procedure Read is new File_In.Read_Gen_Enum (WNM.Looper.Quantize_Kind);
+      procedure Read is new File_In.Read_Gen_Int (WNM.Looper.Bar_Count);
+
+      Set : Looper_Track_Settings;
+      Raw : In_UInt;
+      Success : Boolean;
+
+      Length_Us, Stored_Length_Us, Start_Offset_Us : HAL.UInt32 := 0;
+      Generation : HAL.UInt16 := 0;
+      Muted, Solo, Hidden : Boolean := False;
+      Bars  : WNM.Looper.Bar_Count     := WNM.Looper.Bar_Count'First;
+      Quant : WNM.Looper.Quantize_Kind := WNM.Looper.Off;
+   begin
+      loop
+         Input.Read (Raw);
+
+         exit when Input.Status /= Ok
+           or else Raw = End_Of_Section_Value;
+
+         To_LT_Settings (Raw, Set, Success);
+
+         exit when not Success;
+
+         case Set is
+            when LT_Length_Us =>
+               declare
+                  V : In_UInt;
+               begin
+                  Input.Read (V);
+                  Length_Us := HAL.UInt32 (V);
+               end;
+            when LT_Stored_Length_Us =>
+               declare
+                  V : In_UInt;
+               begin
+                  Input.Read (V);
+                  Stored_Length_Us := HAL.UInt32 (V);
+               end;
+            when LT_Start_Offset_Us =>
+               declare
+                  V : In_UInt;
+               begin
+                  Input.Read (V);
+                  Start_Offset_Us := HAL.UInt32 (V);
+               end;
+            when LT_Generation =>
+               declare
+                  V : In_UInt;
+               begin
+                  Input.Read (V);
+                  Generation := HAL.UInt16 (V);
+               end;
+            when LT_Muted => Read (Input, Muted);
+            when LT_Solo  => Read (Input, Solo);
+            when LT_Hidden => Read (Input, Hidden);
+            when LT_Bars => Read (Input, Bars);
+            when LT_Quant => Read (Input, Quant);
+
+            when LT_Event_Count =>
+               declare
+                  Count : In_UInt;
+               begin
+                  Input.Read (Count);
+                  exit when Input.Status /= Ok;
+
+                  for I in 1 .. Count loop
+                     declare
+                        At_Us : In_UInt;
+                        Status, Data_1, Data_2 : In_UInt;
+                        Dummy : Boolean;
+                     begin
+                        Input.Read (At_Us);
+                        Input.Read (Status);
+                        Input.Read (Data_1);
+                        Input.Read (Data_2);
+                        exit when Input.Status /= Ok;
+
+                        Dummy := WNM.Looper.Restore_Event
+                          (Track, HAL.UInt32 (At_Us),
+                           (Status => HAL.UInt8 (Status),
+                            Data_1 => HAL.UInt8 (Data_1),
+                            Data_2 => HAL.UInt8 (Data_2)));
+                     end;
+                  end loop;
+               end;
+         end case;
+
+         exit when Input.Status /= Ok;
+      end loop;
+
+      WNM.Looper.Set_Restored_Track_State
+        (Track, Length_Us, Stored_Length_Us, Generation,
+         Muted, Solo, Hidden, Start_Offset_Us);
+      --  Bars and Quant are the Looper tab's own UI settings, not part of
+      --  Set_Restored_Track_State's reference-engine-shaped signature, so
+      --  they are set separately.
+      WNM.Looper.Set_Bars (Track, Bars, 0, null);
+      WNM.Looper.Set_Quantize (Track, Quant);
+   end Load_Looper_Track;
+
+   --------------------
+   -- Load_Looper    --
+   --------------------
+
+   procedure Load_Looper (Input : in out File_In.Instance) is
+      Token : Token_Kind;
+      Auto_Raw : In_UInt;
+   begin
+      WNM.Looper.Reset;
+
+      --  The shared AUT setting, a single raw value right after the
+      --  section token, not wrapped in a settings ID the way the
+      --  per-track fields are: there is only ever the one.
+      Input.Read (Auto_Raw);
+      if Input.Status = Ok
+        and then Auto_Raw <=
+          In_UInt (WNM.Looper.Auto_Kind'Pos (WNM.Looper.Auto_Kind'Last))
+      then
+         WNM.Looper.Set_Auto_Setting
+           (WNM.Looper.Auto_Kind'Val (Natural (Auto_Raw)));
+      end if;
+
+      loop
+         Input.Read (Token);
+
+         exit when Input.Status /= Ok or else Token = End_Of_Section;
+
+         if Token = Looper_Track then
+            declare
+               Track_Raw : In_UInt;
+            begin
+               Input.Read (Track_Raw);
+               exit when Input.Status /= Ok;
+
+               if Track_Raw in
+                 In_UInt (WNM.Looper.Loop_Track'First) ..
+                   In_UInt (WNM.Looper.Loop_Track'Last)
+               then
+                  Load_Looper_Track
+                    (Input, WNM.Looper.Loop_Track (Track_Raw));
+               else
+                  Input.Set_Format_Error;
+               end if;
+            end;
+         else
+            Input.Set_Format_Error;
+         end if;
+
+         exit when Input.Status /= Ok;
+      end loop;
+   end Load_Looper;
+
    ----------
    -- Load --
    ----------
@@ -1407,6 +1654,9 @@ package body WNM.Project.Storage is
 
             when FX_Settings =>
                Load_FX (Input);
+
+            when Looper_Section =>
+               Load_Looper (Input);
 
             when End_Of_File =>
                exit;

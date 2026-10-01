@@ -130,6 +130,48 @@ package WNM.Looper is
    function Oldest_Populated_Track return Loop_Track;
    function Newest_Populated_Track return Loop_Track;
 
+   --  Saving and loading a project's loop content. Mirrors the reference
+   --  engine's visitEvents/restoreEvent/setRestoredTrackState, minus the
+   --  live-import variants (beginImport/importEvent/finishImport), which
+   --  exist there to bring in an external take while something may
+   --  already be playing. Loading from project storage happens before
+   --  anything is playing, so the simpler pair here is enough.
+
+   function Track_Event_Count (Track : Loop_Track) return Natural;
+
+   procedure Visit_Events (Track : Loop_Track; Visit : Emit_Proc);
+   --  Calls Visit once per stored event on this track, in order. Reuses
+   --  Emit_Proc's shape rather than a new callback type: a save routine
+   --  visiting every event is exactly the same shape as the Tick callback
+   --  that plays one, just always called.
+
+   function Restore_Event (Track : Loop_Track; At_Us : UInt32;
+                           Event : MIDI_Event) return Boolean;
+   --  Inserts one event read back from storage. Call Reset first (this
+   --  does not clear anything itself), then this once per saved event in
+   --  any order (events are kept sorted internally regardless of
+   --  insertion order), then Set_Restored_Track_State once per track to
+   --  fill in everything an event list alone does not capture.
+
+   procedure Set_Restored_Track_State (Track              : Loop_Track;
+                                       Length_Us          : UInt32;
+                                       Stored_Length_Us   : UInt32;
+                                       Generation         : UInt16;
+                                       Muted, Solo, Hidden : Boolean;
+                                       Start_Offset_Us    : UInt32 := 0);
+
+   --  The other half of the round trip: reading back everything
+   --  Set_Restored_Track_State above takes, so a save routine can get it
+   --  in the first place. Not needed for anything but saving, since
+   --  playback only ever goes through Tick/Capture/the AUT-driven calls.
+   function Track_Length_Us (Track : Loop_Track) return UInt32;
+   function Track_Stored_Length_Us (Track : Loop_Track) return UInt32;
+   function Track_Generation (Track : Loop_Track) return UInt16;
+   function Track_Muted (Track : Loop_Track) return Boolean;
+   function Track_Solo (Track : Loop_Track) return Boolean;
+   function Track_Hidden (Track : Loop_Track) return Boolean;
+   function Track_Start_Offset_Us (Track : Loop_Track) return UInt32;
+
    --  Icon state shown on the Looper tab, one per track. Matches the four
    --  shapes the UI draws: a hollow square for stopped-with-content, a
    --  filled triangle for playing, a hollow circle for armed, a filled
