@@ -71,6 +71,24 @@ package body WNM.GUI.Menu.Step_Settings is
       Sub  : constant Sub_Settings := This.Current_Setting;
       Top_Setting : constant Top_Settings := To_Top (Sub);
    begin
+      if Project.Sequencer_Mode /= Project.OG_Sequencer then
+         --  Everything below reads Steps (Trigger, Note_Mode, Velocity,
+         --  Duration, CC values), which in Four_Track_Looper mode is the
+         --  loop event pool's own storage: decoding those bytes as a
+         --  Trigger_Kind raises Constraint_Error the moment one lands
+         --  outside its 21 values, and this runs every frame.
+         --
+         --  Reachable even though the Step button cannot open this
+         --  screen in Looper mode, because Exit_Menu leaves one window
+         --  on the stack: being in Step mode in OG Sequencer, switching
+         --  mode from the Menu, and coming back leaves this as the
+         --  window still being drawn.
+         Draw_Menu_Box ("Step settings", Count => 0, Index => 0);
+         Draw_Title ("Looper Mode", "");
+         Draw_Value ("Hold Step for FX");
+         return;
+      end if;
+
       Draw_Menu_Box
         ("Step settings",
          Count => Top_Settings_Count,
@@ -157,6 +175,17 @@ package body WNM.GUI.Menu.Step_Settings is
    is
       Step : constant Sequencer_Steps := Editing_Step;
    begin
+      if Project.Sequencer_Mode /= Project.OG_Sequencer then
+         --  Same reasoning as Draw above, except this half writes into
+         --  Steps rather than reading it, which would corrupt the loop
+         --  pool instead of crashing on it. Only B still works, to get
+         --  back out of a screen that has nothing to edit here.
+         if Event.Kind = B_Press then
+            Menu.Pop (Success);
+         end if;
+         return;
+      end if;
+
       case Event.Kind is
          when Left_Press =>
             if This.Current_Setting = Sub_Settings'First then
