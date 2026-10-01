@@ -29,6 +29,7 @@ with WNM.Time;
 package body WNM.GUI.Menu.Looper_Settings is
 
    use type WNM.Looper.Menu_Column_Id;
+   use type WNM.Looper.Menu_Tab_Id;
 
    Looper_Menu_Singleton : aliased Looper_Settings_Menu;
 
@@ -54,6 +55,10 @@ package body WNM.GUI.Menu.Looper_Settings is
    pragma Compile_Time_Error
      (Top_Settings'Pos (Top_Settings'Last) + 1 /= WNM.Looper.Menu_Tab_Count,
       "Menu_Tab_Id no longer covers every tab on this screen");
+
+   pragma Compile_Time_Error
+     (Top_Settings'Pos (Arp_Tab) /= WNM.Looper.Menu_Tab_Arp,
+      "Menu_Tab_Arp no longer points at this screen's LiveArp tab");
 
    AUT_Column : constant Column_Id := Column_Id'Last;
 
@@ -258,7 +263,7 @@ package body WNM.GUI.Menu.Looper_Settings is
       Draw_Str (Left, Box_Top + 3,  "Play  arm play dub");
       Draw_Str (Left, Box_Top + 12, "Play2 stop clr undo");
       Draw_Str (Left, Box_Top + 21, "Edit  keyboard");
-      Draw_Str (Left, Box_Top + 30, "Pads  arp / track");
+      Draw_Str (Left, Box_Top + 30, "B     clear track");
    end Draw_Buttons;
 
    ---------------
@@ -408,7 +413,13 @@ package body WNM.GUI.Menu.Looper_Settings is
             end if;
 
          when B_Press =>
-            null;
+            if Tab = Tracks_Tab and then Column /= AUT_Column then
+               --  Clears the selected track, or undoes that clear if it
+               --  is already cleared and nothing has recorded over it.
+               --  Same thing Edit held plus Play does, somewhere it can
+               --  actually be found.
+               WNM.Project.Looper_Clear_Track;
+            end if;
 
          when Slider_Touch =>
             null;

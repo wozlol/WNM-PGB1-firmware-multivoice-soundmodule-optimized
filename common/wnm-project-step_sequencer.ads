@@ -37,6 +37,12 @@ package WNM.Project.Step_Sequencer is
    function Keyboard_Octave return Octave_Offset;
    procedure Set_Keyboard_Octave (O : Octave_Offset);
 
+   function Offset_Key (K : MIDI.MIDI_Key; Oct : Octave_Offset)
+                        return MIDI.MIDI_Key;
+   --  K moved by Oct octaves, clamped to the MIDI range rather than
+   --  wrapping. Exposed so Looper mode offsets a note by a track's octave
+   --  the same way this package already does.
+
    function Keyboard_Key (Button : Keyboard_Button;
                           T      : Tracks) return MIDI.MIDI_Key;
    --  The note this pad plays on the chromatic keyboard layout, with both

@@ -224,10 +224,11 @@ package body WNM.UI is
                      --  over the plain tap. See On_Release below.
 
                   when Rec =>
-                     --  The button the faceplate calls Edit.
-                     Edit_Btn := (Held => True, Momentary => False,
-                                 Was_Modifier => False);
-
+                     --  The button the faceplate calls Edit. Edit_Btn.Held
+                     --  is set on the physical press in Update, not here:
+                     --  Rec has a long press, so On_Press is deferred
+                     --  until release, which is after every combo that
+                     --  needs to know Edit is down has already happened.
                      if Project.Sequencer_Mode = Project.OG_Sequencer then
                         case Current_Input_Mode is
                            when Step_Mode | Track_Mode =>
@@ -269,8 +270,10 @@ package body WNM.UI is
                         Project.Looper_Arp_Pad (B);
 
                      else
-                        --  Track mode: pick the instrument.
-                        Project.Looper_Track_Select (B);
+                        --  Track mode: pick the instrument and play it,
+                        --  so the pads beat out a part the way the front
+                        --  panel always has, and the looper records it.
+                        Project.Looper_Track_Press (B);
                      end if;
 
                   when others =>
@@ -337,12 +340,17 @@ package body WNM.UI is
                      end if;
 
                   when Keyboard_Button =>
-                     if Project.Sequencer_Mode /= Project.OG_Sequencer
-                       and then (Chroma_Keyboard_On
-                                 or else
-                                   Current_Input_Mode = Sample_Edit_Mode)
+                     if Project.Sequencer_Mode = Project.OG_Sequencer then
+                        null;
+                     elsif Chroma_Keyboard_On
+                       or else Current_Input_Mode = Sample_Edit_Mode
                      then
                         Project.Looper_Keyboard_Release (B);
+                     elsif Current_Input_Mode /= Step_Mode then
+                        --  The matching release for a track pad. Not in
+                        --  Step mode, where the pads are the arp grid and
+                        --  nothing is sounding to release.
+                        Project.Looper_Track_Release (B);
                      end if;
 
                   when others =>
@@ -444,7 +452,14 @@ package body WNM.UI is
                      then
                         if Select_Done then
                            --  A pad was used while Step was held, so this
-                           --  release just ends the FX surface.
+                           --  release just ends the FX surface. The
+                           --  stutter is momentary and is stopped here as
+                           --  well as on the pad's own release: letting go
+                           --  of Step first leaves the pad's release to be
+                           --  handled by a mode that knows nothing about
+                           --  it, and the stutter would run forever,
+                           --  looping the whole history ring.
+                           Project.Looper_FX_Release_All;
                            Current_Input_Mode := Last_Main_Mode;
                         else
                            --  A tap opens the Looper screens. Step_Settings
@@ -803,6 +818,15 @@ package body WNM.UI is
          elsif State (B) = Down then
             --  Button was justed pressed
 
+            if B = Rec then
+               --  Edit's held flag, from the physical edge. Its On_Press
+               --  is deferred (it has a long press), so taking Held from
+               --  there would only ever go true on release, long after
+               --  Edit+Play has come and gone.
+               Edit_Btn := (Held => True, Momentary => False,
+                           Was_Modifier => False);
+            end if;
+
             if B in Long_Press_Button and then Has_Long_Press (B) then
                --  If this button has long press event we don't signal the
                --  On_Press right now, but we record the time at wich it was
@@ -910,19 +934,22 @@ package body WNM.UI is
       begin
          --  Styles: Arp_Style_Kind'First is Arp_Off, so the six playable
          --  ones are Pos 1 .. 6 and land on pads 1 .. 6.
+         --  Cyan and green across the whole arp grid, nothing like the
+         --  magenta the FX surface uses: both live on pads 9-16 and the
+         --  only way to tell them apart at a glance is the colour.
          if Style /= WNM.Looper.Arp_Off then
             LEDs.Turn_On
               (To_Button
                  (Keyboard_Value (WNM.Looper.Arp_Style_Kind'Pos (Style))),
-               LEDs.Track);
+               LEDs.Cyan);
          end if;
 
          --  Octave toggles.
          if WNM.Looper.Arp_Octave_Down (Chan) then
-            LEDs.Turn_On (B7, LEDs.Pattern);
+            LEDs.Turn_On (B7, LEDs.Azure);
          end if;
          if WNM.Looper.Arp_Octave_Up (Chan) then
-            LEDs.Turn_On (B8, LEDs.Pattern);
+            LEDs.Turn_On (B8, LEDs.Azure);
          end if;
 
          --  Divisions on 9 .. 16, only worth showing once a style is on.
@@ -932,7 +959,7 @@ package body WNM.UI is
                  (Keyboard_Value
                     (9 + WNM.Looper.Arp_Division_Kind'Pos
                        (WNM.Looper.Arp_Division (Chan)))),
-               LEDs.Step);
+               LEDs.Spring_Green);
          end if;
       end;
    end LEDs_LiveArp_Grid;
@@ -1081,7 +1108,7 @@ package body WNM.UI is
             if Project.Sequencer_Mode /= Project.OG_Sequencer then
                --  Step held is the FX surface here: 1-8 stutter
                --  (momentary), 9-16 dub delay (latching).
-               LEDs.Set_Hue (LEDs.FX);
+               LEDs.Set_Hue (LEDs.Magenta);
                if WNM.Looper.Delay_Active then
                   LEDs.Turn_On
                     (To_Button
@@ -1093,7 +1120,7 @@ package body WNM.UI is
                   --  Which of the eight it is lives inside the engine, so
                   --  the Step button itself carries "a stutter is running"
                   --  rather than guessing a pad.
-                  LEDs.Turn_On (Step_Button, LEDs.FX);
+                  LEDs.Turn_On (Step_Button, LEDs.Magenta);
                end if;
             else
                LEDs.Set_Hue (LEDs.Step);

@@ -251,6 +251,11 @@ package WNM.Looper is
 
    Menu_Tab_Count : constant := 4;
    type Menu_Tab_Id is range 0 .. Menu_Tab_Count - 1;
+
+   Menu_Tab_Arp : constant Menu_Tab_Id := 1;
+   --  The LiveArp tab's index. Named here so the code that changes an arp
+   --  setting can bring that tab up without depending on the GUI, and the
+   --  GUI asserts at compile time that its own enum still agrees.
    function Menu_Tab return Menu_Tab_Id;
    procedure Set_Menu_Tab (T : Menu_Tab_Id);
 

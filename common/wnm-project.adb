@@ -37,6 +37,15 @@ package body WNM.Project is
    is new Project_Load_Broadcast.Register (Project_Load_Callback'Access);
    pragma Unreferenced (Project_Load_Listener);
 
+   function Track_Pad_Channel (T : Tracks) return MIDI.MIDI_Channel;
+   function Track_Pad_Key (T : Tracks) return MIDI.MIDI_Key;
+   procedure Looper_Play_Note (Chan     : MIDI.MIDI_Channel;
+                               Key      : MIDI.MIDI_Key;
+                               Velocity : MIDI.MIDI_Data;
+                               Note_On  : Boolean);
+   --  Forward declared: the keypad handlers below sit after the engine
+   --  glue they need, and these three are shared by all of them.
+
    procedure Arp_Emit (Channel  : WNM.Looper.Arp_Channel;
                        Key      : MIDI.MIDI_Key;
                        Velocity : MIDI.MIDI_Data;
@@ -2530,6 +2539,11 @@ package body WNM.Project is
          return;
       end if;
 
+      --  Bring the LiveArp tab up: these pads change arp settings, and
+      --  with the track grid showing there was no way to see that
+      --  anything had happened.
+      WNM.Looper.Set_Menu_Tab (WNM.Looper.Menu_Tab_Arp);
+
       declare
          Chan : constant WNM.Looper.Arp_Channel :=
            WNM.Looper.Arp_Channel (Looper_Arp_Channel);
@@ -2573,14 +2587,67 @@ package body WNM.Project is
       end;
    end Looper_Arp_Pad;
 
+   ----------------------
+   -- Looper_Play_Note --
+   ----------------------
+
+   procedure Looper_Play_Note (Chan     : MIDI.MIDI_Channel;
+                               Key      : MIDI.MIDI_Key;
+                               Velocity : MIDI.MIDI_Data;
+                               Note_On  : Boolean)
+   is
+      use type MIDI.MIDI_Channel;
+      use type WNM.Looper.Arp_Style_Kind;
+
+      Msg : constant MIDI.Message :=
+        (if Note_On
+         then (Kind     => MIDI.Note_On,
+               Chan     => Chan,
+               Key      => Key,
+               Velocity => Velocity)
+         else (Kind     => MIDI.Note_Off,
+               Chan     => Chan,
+               Key      => Key,
+               Velocity => Velocity));
+
+      Via_Arp : constant Boolean :=
+        Chan in WNM.Looper.Arp_Channel
+          and then Chan /= WNM.Synth.Chord_Channel
+          and then WNM.Looper.Arp_Style (Chan) /= WNM.Looper.Arp_Off;
+   begin
+      --  Captured whether or not the arp swallows the note itself, so a
+      --  loop holds what was played rather than what the arp made of it:
+      --  "the looper saves notes pre-livearp". Capture is already a no-op
+      --  when nothing is armed or recording.
+      declare
+         Captured : constant Boolean :=
+           WNM.Looper.Capture
+             (WNM.Time.Clock, WNM.Looper.To_Loop_Event (Msg));
+         pragma Unreferenced (Captured);
+      begin
+         null;
+      end;
+
+      if Via_Arp then
+         if Note_On then
+            WNM.Looper.Arp_Note_On (Chan, Key, Velocity);
+         else
+            WNM.Looper.Arp_Note_Off (Chan, Key, Arp_Emit'Access);
+         end if;
+      else
+         Sound_And_Record (Msg);
+      end if;
+
+      Sync_Clock_To_Looper;
+      --  Arming and then playing the first note is what starts a take, so
+      --  the clock has to come up here too, not only on the Play tap.
+   end Looper_Play_Note;
+
    -----------------------------
    -- Looper_Keyboard_Press   --
    -----------------------------
 
    procedure Looper_Keyboard_Press (Button : Keyboard_Button) is
-      use type MIDI.MIDI_Channel;
-      use type WNM.Looper.Arp_Style_Kind;
-
       T : constant Tracks := Editing_Track;
    begin
       --  B1, B4 and B8 are the keyboard layout's own octave controls, the
@@ -2609,46 +2676,10 @@ package body WNM.Project is
             null;
       end case;
 
-      declare
-         Chan : constant MIDI.MIDI_Channel :=
-           (case Mode (T) is
-               when Synth_Track_Mode_Kind => Voice_MIDI_Chan (Mode (T)),
-               when MIDI_Mode             => MIDI_Chan (T));
-
-         Key : constant MIDI.MIDI_Key :=
-           Step_Sequencer.Keyboard_Key (Button, T);
-
-         Msg : constant MIDI.Message :=
-           (Kind     => MIDI.Note_On,
-            Chan     => Chan,
-            Key      => Key,
-            Velocity => MIDI.MIDI_Data'Last);
-
-         Via_Arp : constant Boolean :=
-           Chan in WNM.Looper.Arp_Channel
-             and then Chan /= WNM.Synth.Chord_Channel
-             and then WNM.Looper.Arp_Style (Chan) /= WNM.Looper.Arp_Off;
-      begin
-         --  Captured whether or not the arp swallows the note itself, so a
-         --  loop holds what was played rather than what the arp made of
-         --  it: "the looper saves notes pre-livearp".
-         declare
-            Captured : constant Boolean :=
-              WNM.Looper.Capture
-                (WNM.Time.Clock, WNM.Looper.To_Loop_Event (Msg));
-            pragma Unreferenced (Captured);
-         begin
-            null;
-         end;
-
-         if Via_Arp then
-            WNM.Looper.Arp_Note_On (Chan, Key, MIDI.MIDI_Data'Last);
-         else
-            Sound_And_Record (Msg);
-         end if;
-      end;
-
-      Sync_Clock_To_Looper;
+      Looper_Play_Note (Track_Pad_Channel (T),
+                        Step_Sequencer.Keyboard_Key (Button, T),
+                        MIDI.MIDI_Data'Last,
+                        Note_On => True);
    end Looper_Keyboard_Press;
 
    -------------------------------
@@ -2656,9 +2687,6 @@ package body WNM.Project is
    -------------------------------
 
    procedure Looper_Keyboard_Release (Button : Keyboard_Button) is
-      use type MIDI.MIDI_Channel;
-      use type WNM.Looper.Arp_Style_Kind;
-
       T : constant Tracks := Editing_Track;
    begin
       if Button in B1 | B4 | B8 then
@@ -2666,60 +2694,53 @@ package body WNM.Project is
          return;
       end if;
 
-      declare
-         Chan : constant MIDI.MIDI_Channel :=
-           (case Mode (T) is
-               when Synth_Track_Mode_Kind => Voice_MIDI_Chan (Mode (T)),
-               when MIDI_Mode             => MIDI_Chan (T));
-
-         Key : constant MIDI.MIDI_Key :=
-           Step_Sequencer.Keyboard_Key (Button, T);
-
-         Msg : constant MIDI.Message :=
-           (Kind     => MIDI.Note_Off,
-            Chan     => Chan,
-            Key      => Key,
-            Velocity => 0);
-
-         Via_Arp : constant Boolean :=
-           Chan in WNM.Looper.Arp_Channel
-             and then Chan /= WNM.Synth.Chord_Channel
-             and then WNM.Looper.Arp_Style (Chan) /= WNM.Looper.Arp_Off;
-      begin
-         declare
-            Captured : constant Boolean :=
-              WNM.Looper.Capture
-                (WNM.Time.Clock, WNM.Looper.To_Loop_Event (Msg));
-            pragma Unreferenced (Captured);
-         begin
-            null;
-         end;
-
-         if Via_Arp then
-            WNM.Looper.Arp_Note_Off (Chan, Key, Arp_Emit'Access);
-         else
-            Sound_And_Record (Msg);
-         end if;
-      end;
+      Looper_Play_Note (Track_Pad_Channel (T),
+                        Step_Sequencer.Keyboard_Key (Button, T),
+                        0,
+                        Note_On => False);
    end Looper_Keyboard_Release;
 
    -----------------------------
    -- Looper_Track_Select     --
    -----------------------------
 
-   procedure Looper_Track_Select (Button : Keyboard_Button) is
+   function Track_Pad_Channel (T : Tracks) return MIDI.MIDI_Channel
+   is (case Mode (T) is
+          when Synth_Track_Mode_Kind => Voice_MIDI_Chan (Mode (T)),
+          when MIDI_Mode             => MIDI_Chan (T));
+
+   function Track_Pad_Key (T : Tracks) return MIDI.MIDI_Key
+   is (Step_Sequencer.Offset_Key (MIDI.C4, G_Project.Tracks (T).Offset));
+   --  The same note the step sequencer's own track preview plays.
+
+   procedure Looper_Track_Press (Button : Keyboard_Button) is
       T : constant Tracks := To_Value (Button);
    begin
       Editing_Track := T;
 
-      --  Just the track's own CC values. Step_Sequencer's own
-      --  Do_Preview_Trigger goes through CC_Value_To_Use, which reads the
-      --  per-step CC override out of G_Project.Steps, and in this mode
-      --  that storage is the loop event pool: it would push whatever
-      --  loop-event bytes happen to sit there into the voice as parameter
-      --  values.
+      --  Just the track's own CC values, see the spec for why.
       Synchronize_Synth_Settings (T);
-   end Looper_Track_Select;
+
+      Looper_Play_Note (Track_Pad_Channel (T), Track_Pad_Key (T),
+                        MIDI.MIDI_Data'Last, Note_On => True);
+   end Looper_Track_Press;
+
+   procedure Looper_Track_Release (Button : Keyboard_Button) is
+      T : constant Tracks := To_Value (Button);
+   begin
+      Looper_Play_Note (Track_Pad_Channel (T), Track_Pad_Key (T),
+                        0, Note_On => False);
+   end Looper_Track_Release;
+
+   ---------------------------
+   -- Looper_FX_Release_All --
+   ---------------------------
+
+   procedure Looper_FX_Release_All is
+   begin
+      WNM.Looper.Stutter_Stop (FX_Emit'Access);
+      Sync_Clock_To_Looper;
+   end Looper_FX_Release_All;
 
    procedure Play_Pause_Dispatch is
    begin

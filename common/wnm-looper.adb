@@ -627,6 +627,19 @@ package body WNM.Looper is
 
    procedure Select_Track (Track : Loop_Track) is
    begin
+      if Overlay_Ptr.Is_Recording_Armed
+        and then Overlay_Ptr.Recording_Trk /= Track
+      then
+         --  An arm that has not captured its first note yet belongs to
+         --  whichever track was selected when it was armed. Moving the
+         --  selection drops it rather than leaving the arm pointed at one
+         --  track while the icons and the Play button act on another,
+         --  which reads as a note appearing on a track you never armed.
+         Overlay_Ptr.Is_Recording_Armed := False;
+         Overlay_Ptr.Is_Recording := False;
+         Overlay_Ptr.Is_Overdubbing := False;
+      end if;
+
       Overlay_Ptr.Selected := Track;
    end Select_Track;
 

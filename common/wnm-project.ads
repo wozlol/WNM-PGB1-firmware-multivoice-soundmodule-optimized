@@ -163,12 +163,26 @@ package WNM.Project is
    --  the note that was played. Both go through the same path live MIDI
    --  in does, so the looper captures them and the effects see them.
 
-   procedure Looper_Track_Select (Button : Keyboard_Button);
+   procedure Looper_Track_Press (Button : Keyboard_Button);
+   procedure Looper_Track_Release (Button : Keyboard_Button);
    --  The sixteen pads in Four_Track_Looper mode with the keyboard off
-   --  and Track mode showing: picks the instrument, exactly like the step
-   --  sequencer's own track select, but pushing only the track's own CC
-   --  values. The step sequencer's version reads per-step CC overrides out
-   --  of Steps, which is the loop event pool in this mode.
+   --  and Track mode showing. Picks the instrument and plays it, so the
+   --  pads are drum pads you can beat out a part on, and because it goes
+   --  through the same path as the keyboard the looper records it.
+   --
+   --  Only the track's own CC values are pushed. The step sequencer's
+   --  own preview goes through CC_Value_To_Use, which reads a per-step CC
+   --  override out of Steps, and Steps is the loop event pool here.
+   --
+   --  The channel and note come from the button, not from the selected
+   --  track, so releasing a pad always releases the note that pad
+   --  started even if another pad has changed the selection since.
+
+   procedure Looper_FX_Release_All;
+   --  Stops the momentary stutter whatever is holding it. Releasing the
+   --  Step button before the pad used to leave the stutter running with
+   --  nothing left listening for that pad's release, which loops the
+   --  whole history ring forever.
 
    procedure Looper_Arp_Pad (Button : Keyboard_Button);
    --  The sixteen pads in Four_Track_Looper mode with the keyboard off

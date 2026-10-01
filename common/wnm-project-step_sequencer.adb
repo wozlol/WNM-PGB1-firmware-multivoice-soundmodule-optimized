@@ -910,6 +910,14 @@ package body WNM.Project.Step_Sequencer is
    -- Keyboard_Key --
    ------------------
 
+   function Offset_Key (K : MIDI.MIDI_Key; Oct : Octave_Offset)
+                        return MIDI.MIDI_Key
+   is (Offset (K, Oct));
+
+   ------------------
+   -- Keyboard_Key --
+   ------------------
+
    function Keyboard_Key (Button : Keyboard_Button;
                           T      : Tracks) return MIDI.MIDI_Key
    is (Offset (Offset ((case Button is
