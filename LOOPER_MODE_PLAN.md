@@ -131,7 +131,24 @@ not estimated.
         `Finish_Import` from the reference engine): P10 still has to add
         these before loop content itself can survive a save/reload. Right
         now only the Sequencer_Mode flag survives a reload, not loop data.
-- [ ] P3: Looper tab UI (5 columns), wired to the engine.
+- [x] P3: Looper tab UI (5 columns), wired to the engine. Not a separate
+      pushed window (that costs its own ~10-byte singleton, which this
+      firmware does not have): it is a third item on the root Menu
+      (`Looper_Config`, right after Sequencer Mode), shown collapsed with
+      the loop icon and "Press A to edit" until A is pressed, same
+      convention the Live FX tab already uses for its Auto-Fill and
+      Stutter Pattern screens. Once entered, Left/Right move between the 4
+      track columns and the AUT column, Up/Down change the selected
+      track's bar count (1-16), A cycles its quantize (Off/1-8/1-16/1-32)
+      or the shared AUT setting on that column, B leaves the editor. Track
+      icon is one of four hand-drawn glyphs (hollow square/filled
+      triangle/hollow circle/filled circle) reflecting
+      `WNM.Looper.Icon`'s live state. Compiles clean, RAM unchanged.
+      `WNM.Looper.Img` added for `Quantize_Kind` and `Auto_Kind`, and
+      `Auto_Next` alongside the existing `Quantize_Next`.
+      Known gap carried from P2: `Up`/`Down` call `Set_Bars`, which does
+      not yet resize a running engine, so changing bars here only takes
+      effect for a track's next recording, not one already looping.
 - [ ] P4: Wire the engine into the MIDI capture/playback path, replacing
       the step sequencer dispatch when in Looper mode.
 - [ ] P5: LiveArp engine (styles, octave range, per-channel division,

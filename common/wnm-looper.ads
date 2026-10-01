@@ -138,12 +138,26 @@ package WNM.Looper is
    function Quantize_Next (Q : Quantize_Kind) return Quantize_Kind
    is (if Q = Quantize_Kind'Last then Quantize_Kind'First
        else Quantize_Kind'Succ (Q));
+   function Img (Q : Quantize_Kind) return String
+   is (case Q is
+          when Off  => "Off",
+          when Q_8  => "1/8",
+          when Q_16 => "1/16",
+          when Q_32 => "1/32");
 
    type Auto_Kind is (Auto_Off, Auto_Overdub, Auto_Track, Auto_Arm);
    --  Auto_Off: no automatic behavior when a recording pass auto-ends.
    --  Auto_Overdub: keep overdubbing the same track until it is unarmed.
    --  Auto_Track: switch to the next track when a pass auto-ends.
    --  Auto_Arm: switch to the next track and arm it for the next note.
+   function Img (A : Auto_Kind) return String
+   is (case A is
+          when Auto_Off      => "Off",
+          when Auto_Overdub  => "Overdub",
+          when Auto_Track    => "Track",
+          when Auto_Arm      => "Arm");
+   function Auto_Next (A : Auto_Kind) return Auto_Kind
+   is (if A = Auto_Kind'Last then Auto_Kind'First else Auto_Kind'Succ (A));
 
    function Auto_Setting return Auto_Kind;
    procedure Set_Auto_Setting (Setting : Auto_Kind);

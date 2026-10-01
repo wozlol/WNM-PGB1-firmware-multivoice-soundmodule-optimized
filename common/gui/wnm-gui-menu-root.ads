@@ -27,6 +27,7 @@ private
 
    type Menu_Items is (Projects,
                        Sequencer_Mode_Select,
+                       Looper_Config,
                        Tracks_Mixer,
                        User_Waveform,
                        Live_FX,
@@ -37,8 +38,24 @@ private
 
    function Menu_Items_Count is new Enum_Count (Menu_Items);
 
+   --  Columns 1-4 are WNM.Looper.Loop_Track, column 5 is the shared AUT
+   --  setting, matching the spec's "5 cols, 4 for looper tracks and a 5th
+   --  AUT setting". A field here rather than a separate pushed window and
+   --  its own singleton: a new Menu_Window costs a tag pointer plus its
+   --  own state, around 10 bytes, and this firmware has none to spare
+   --  (see LOOPER_MODE_PLAN.md). One more field on the window that already
+   --  exists costs close to nothing.
+   type Looper_Column_Id is range 1 .. 5;
+
    type Root_Menu is new Menu_Window with record
       Item : Menu_Items;
+      Looper_Column  : Looper_Column_Id := Looper_Column_Id'First;
+      Looper_Editing : Boolean := False;
+      --  Left/Right already mean "switch root tabs" everywhere else on
+      --  this screen, so the Looper tab's own column navigation needs to
+      --  be entered first (A, same "Press A to edit" convention the
+      --  Live FX tab already uses), same reasoning as Looper_Column above
+      --  for why this is a field here and not a pushed window.
    end record;
 
    overriding
