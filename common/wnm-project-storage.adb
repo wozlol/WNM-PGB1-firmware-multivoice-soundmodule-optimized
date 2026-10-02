@@ -730,6 +730,45 @@ package body WNM.Project.Storage is
          exit when Output.Status /= Ok;
       end loop;
 
+      --  LiveArp, one record per channel, and the drum sidecar, which is
+      --  one pair for the whole looper. Without these the arp came back
+      --  off after a restart while the rest of the loop came back intact.
+      for C in WNM.Looper.Arp_Channel loop
+         Output.Start_Looper_Arp (C);
+
+         Output.Push (LA_Style);
+         Output.Push (Out_UInt
+                       (WNM.Looper.Arp_Style_Kind'Pos
+                         (WNM.Looper.Arp_Style (C))));
+
+         Output.Push (LA_Division);
+         Output.Push (Out_UInt
+                       (WNM.Looper.Arp_Division_Kind'Pos
+                         (WNM.Looper.Arp_Division (C))));
+
+         Output.Push (LA_Octave_Down);
+         Output.Push (WNM.Looper.Arp_Octave_Down (C));
+
+         Output.Push (LA_Octave_Up);
+         Output.Push (WNM.Looper.Arp_Octave_Up (C));
+
+         Output.End_Section;
+
+         exit when Output.Status /= Ok;
+      end loop;
+
+      Output.Start_Looper_Drum;
+
+      Output.Push (LD_Pulse);
+      Output.Push (WNM.Looper.Drum_Pulse_Enabled);
+
+      Output.Push (LD_Division);
+      Output.Push (Out_UInt
+                    (WNM.Looper.Arp_Division_Kind'Pos
+                      (WNM.Looper.Drum_Division)));
+
+      Output.End_Section;
+
       Output.End_Section;
    end Save_Looper;
 
@@ -1436,6 +1475,90 @@ package body WNM.Project.Storage is
    -- Load_Looper_Track  --
    ------------------------
 
+   procedure Load_Looper_Arp (Input   : in out File_In.Instance;
+                              Channel :        WNM.Looper.Arp_Channel)
+   is
+      procedure To_LA_Settings is new Convert_To_Enum (Looper_Arp_Settings);
+      procedure Read is new File_In.Read_Gen_Enum (WNM.Looper.Arp_Style_Kind);
+      procedure Read
+      is new File_In.Read_Gen_Enum (WNM.Looper.Arp_Division_Kind);
+
+      Set : Looper_Arp_Settings;
+      Raw : In_UInt;
+      Success : Boolean;
+
+      Style : WNM.Looper.Arp_Style_Kind := WNM.Looper.Arp_Off;
+      Div   : WNM.Looper.Arp_Division_Kind := WNM.Looper.D_1_16;
+      Down, Up : Boolean := False;
+   begin
+      loop
+         Input.Read (Raw);
+
+         exit when Input.Status /= Ok
+           or else Raw = End_Of_Section_Value;
+
+         To_LA_Settings (Raw, Set, Success);
+
+         exit when not Success;
+
+         case Set is
+            when LA_Style       => Read (Input, Style);
+            when LA_Division    => Read (Input, Div);
+            when LA_Octave_Down => Input.Read (Down);
+            when LA_Octave_Up   => Input.Read (Up);
+         end case;
+
+         exit when Input.Status /= Ok;
+      end loop;
+
+      WNM.Looper.Set_Arp_Style (Channel, Style);
+      WNM.Looper.Set_Arp_Division (Channel, Div);
+      WNM.Looper.Set_Arp_Octave_Down (Channel, Down);
+      WNM.Looper.Set_Arp_Octave_Up (Channel, Up);
+   end Load_Looper_Arp;
+
+   -----------------------
+   -- Load_Looper_Drum  --
+   -----------------------
+
+   procedure Load_Looper_Drum (Input : in out File_In.Instance) is
+      procedure To_LD_Settings is new Convert_To_Enum (Looper_Drum_Settings);
+      procedure Read
+      is new File_In.Read_Gen_Enum (WNM.Looper.Arp_Division_Kind);
+
+      Set : Looper_Drum_Settings;
+      Raw : In_UInt;
+      Success : Boolean;
+
+      Pulse : Boolean := True;
+      Div   : WNM.Looper.Arp_Division_Kind := WNM.Looper.D_1_16;
+   begin
+      loop
+         Input.Read (Raw);
+
+         exit when Input.Status /= Ok
+           or else Raw = End_Of_Section_Value;
+
+         To_LD_Settings (Raw, Set, Success);
+
+         exit when not Success;
+
+         case Set is
+            when LD_Pulse    => Input.Read (Pulse);
+            when LD_Division => Read (Input, Div);
+         end case;
+
+         exit when Input.Status /= Ok;
+      end loop;
+
+      WNM.Looper.Set_Drum_Pulse_Enabled (Pulse);
+      WNM.Looper.Set_Drum_Division (Div);
+   end Load_Looper_Drum;
+
+   ---------------------------
+   -- Load_Looper_Track     --
+   ---------------------------
+
    procedure Load_Looper_Track (Input : in out File_In.Instance;
                                 Track : WNM.Looper.Loop_Track)
    is
@@ -1584,6 +1707,27 @@ package body WNM.Project.Storage is
                   Input.Set_Format_Error;
                end if;
             end;
+         elsif Token = Looper_Arp then
+            declare
+               Chan_Raw : In_UInt;
+            begin
+               Input.Read (Chan_Raw);
+               exit when Input.Status /= Ok;
+
+               if Chan_Raw in
+                 In_UInt (WNM.Looper.Arp_Channel'First) ..
+                   In_UInt (WNM.Looper.Arp_Channel'Last)
+               then
+                  Load_Looper_Arp
+                    (Input, WNM.Looper.Arp_Channel (Chan_Raw));
+               else
+                  Input.Set_Format_Error;
+               end if;
+            end;
+
+         elsif Token = Looper_Drum then
+            Load_Looper_Drum (Input);
+
          else
             Input.Set_Format_Error;
          end if;

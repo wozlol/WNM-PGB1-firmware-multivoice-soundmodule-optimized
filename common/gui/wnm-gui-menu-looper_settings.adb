@@ -224,33 +224,42 @@ package body WNM.GUI.Menu.Looper_Settings is
    procedure Draw_Arp is
       use WNM.Looper;
 
-      Row_1 : constant := Box_Top + 5;
-      Row_2 : constant := Box_Top + 14;
-      Row_3 : constant := Box_Top + 23;
+      Row_1 : constant := Box_Top + 3;
+      Row_2 : constant := Box_Top + 12;
+      Row_3 : constant := Box_Top + 21;
+      Row_4 : constant := Box_Top + 30;
       Left  : constant := Box_Left + 4;
    begin
       if not WNM.Project.Looper_Arp_Available then
          --  The Chord track plays held notes as a plain poly chord and
          --  never arps, and a MIDI-out track has no arp instance.
-         Draw_Str (Left, Row_1, "No arp on");
-         Draw_Str (Left, Row_2, "this track");
-         return;
+         Draw_Str (Left, Row_1, "No arp on this track");
+      else
+         declare
+            Chan : constant Arp_Channel :=
+              Arp_Channel (WNM.Project.Looper_Arp_Channel);
+         begin
+            Draw_Str (Left, Row_1, "Arp " & Img (Arp_Style (Chan)));
+            Draw_Str (Left, Row_2, "Div " & Img (Arp_Division (Chan)));
+            Draw_Str (Left, Row_3,
+                      "Oct " &
+                        (if Arp_Octave_Down (Chan)
+                           and then Arp_Octave_Up (Chan)
+                         then "-1 +1"
+                         elsif Arp_Octave_Down (Chan) then "-1"
+                         elsif Arp_Octave_Up (Chan) then "+1"
+                         else "none"));
+         end;
       end if;
 
-      declare
-         Chan : constant Arp_Channel :=
-           Arp_Channel (WNM.Project.Looper_Arp_Channel);
-      begin
-         Draw_Str (Left, Row_1, "Arp " & Img (Arp_Style (Chan)));
-         Draw_Str (Left, Row_2, "Div " & Img (Arp_Division (Chan)));
-         Draw_Str (Left, Row_3,
-                   "Oct " &
-                     (if Arp_Octave_Down (Chan) and then Arp_Octave_Up (Chan)
-                      then "-1 +1"
-                      elsif Arp_Octave_Down (Chan) then "-1"
-                      elsif Arp_Octave_Up (Chan) then "+1"
-                      else "none"));
-      end;
+      --  The drum sidecar, which is what a held track pad pulses on. One
+      --  setting for the whole looper, and A and up/down edit it here
+      --  because the pads are already the note arp's surface.
+      Draw_Str (Left, Row_4,
+                "Pad " &
+                  (if Drum_Pulse_Enabled
+                   then "pulse " & Img (Drum_Division)
+                   else "pulse off"));
    end Draw_Arp;
 
    ------------------
@@ -368,7 +377,13 @@ package body WNM.GUI.Menu.Looper_Settings is
             end if;
 
          when Up_Press =>
-            if Tab = Tracks_Tab then
+            if Tab = Arp_Tab then
+               Set_Drum_Division
+                 (if Drum_Division = Arp_Division_Kind'Last
+                  then Arp_Division_Kind'First
+                  else Arp_Division_Kind'Succ (Drum_Division));
+
+            elsif Tab = Tracks_Tab then
                if Column = AUT_Column then
                   Set_Auto_Setting (Auto_Next (Auto_Setting));
                else
@@ -383,7 +398,13 @@ package body WNM.GUI.Menu.Looper_Settings is
             end if;
 
          when Down_Press =>
-            if Tab = Tracks_Tab then
+            if Tab = Arp_Tab then
+               Set_Drum_Division
+                 (if Drum_Division = Arp_Division_Kind'First
+                  then Arp_Division_Kind'Last
+                  else Arp_Division_Kind'Pred (Drum_Division));
+
+            elsif Tab = Tracks_Tab then
                if Column = AUT_Column then
                   --  The other way round the four values, so down undoes
                   --  up instead of cycling on past it.
@@ -404,7 +425,10 @@ package body WNM.GUI.Menu.Looper_Settings is
             end if;
 
          when A_Press =>
-            if Tab = Tracks_Tab and then Column /= AUT_Column then
+            if Tab = Arp_Tab then
+               Set_Drum_Pulse_Enabled (not Drum_Pulse_Enabled);
+
+            elsif Tab = Tracks_Tab and then Column /= AUT_Column then
                declare
                   T : constant Loop_Track := Loop_Track (Column);
                begin

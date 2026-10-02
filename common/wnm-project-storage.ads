@@ -52,6 +52,8 @@ private
                        FX_Settings,
                        Looper_Section,
                        Looper_Track,
+                       Looper_Arp,
+                       Looper_Drum,
 
                        End_Of_File,
                        End_Of_Section);
@@ -71,6 +73,8 @@ private
                        FX_Settings               => 12,
                        Looper_Section            => 13,
                        Looper_Track              => 14,
+                       Looper_Arp                => 15,
+                       Looper_Drum               => 16,
                        End_Of_File               => End_Of_Section_Value - 1,
                        End_Of_Section            => End_Of_Section_Value);
 
@@ -91,5 +95,17 @@ private
                                   LT_Bars,
                                   LT_Quant,
                                   LT_Event_Count);
+
+   --  One LiveArp channel's settings. Self-describing the same way, so
+   --  adding another one later does not break a file written now.
+   type Looper_Arp_Settings is (LA_Style,
+                                LA_Division,
+                                LA_Octave_Down,
+                                LA_Octave_Up);
+
+   --  The drum sidecar, which is one setting pair for the whole looper
+   --  rather than per channel, matching the engine.
+   type Looper_Drum_Settings is (LD_Pulse,
+                                 LD_Division);
 
 end WNM.Project.Storage;

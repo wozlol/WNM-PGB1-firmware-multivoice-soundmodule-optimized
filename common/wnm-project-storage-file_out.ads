@@ -40,6 +40,9 @@ private package WNM.Project.Storage.File_Out is
 
    procedure Start_Looper_Section (This : in out Instance);
    procedure Start_Looper_Track (This : in out Instance; T : WNM.Looper.Loop_Track);
+   procedure Start_Looper_Arp (This : in out Instance;
+                               C    : WNM.Looper.Arp_Channel);
+   procedure Start_Looper_Drum (This : in out Instance);
 
    procedure Start_Track_Settings (This : in out Instance;
                                    T : Tracks);
@@ -63,6 +66,8 @@ private package WNM.Project.Storage.File_Out is
 
    procedure Push (This : in out Instance; A : Step_Settings);
    procedure Push (This : in out Instance; A : Looper_Track_Settings);
+   procedure Push (This : in out Instance; A : Looper_Arp_Settings);
+   procedure Push (This : in out Instance; A : Looper_Drum_Settings);
    procedure Push (This : in out Instance; A : Track_Settings);
    procedure Push (This : in out Instance; A : Pattern_Settings);
    procedure Push (This : in out Instance; A : Part_Settings);

@@ -378,6 +378,54 @@ package WNM.Looper is
    --  noticeable delay at a slow division). Passing null keeps the old
    --  behavior.
 
+   function Arp_Any_Held return Boolean;
+   --  Any channel with a style armed and at least one note still held.
+   --  The arp steps off the shared clock, so the clock has to be running
+   --  whenever this is true and not only while the looper transport is:
+   --  without that an armed arp swallows the note it was given and
+   --  nothing ever plays it.
+
+   ------------------------------------------------------------------------
+   --  Drum sidecar
+   --
+   --  A second, separate pulse engine, which is what the reference does
+   --  (runDrumStep and heldDrumNotes, not the note arp's own stepper) and
+   --  what the spec means by "always arps in chord/trigger mode as an
+   --  independently divisible sidecar". It has no styles: a step re-emits
+   --  every note currently held, all together.
+   --
+   --  Every pulse is gated to half a step, so a pad tapped once is a
+   --  single hit and a pad held is a repeating one. The gate is also what
+   --  makes a quick tap reliable: a note released inside the same audio
+   --  buffer it started in is dropped by the synth's declick, which is why
+   --  release-driven note-offs lost fast hits.
+   ------------------------------------------------------------------------
+
+   subtype Drum_Channel is MIDI.MIDI_Channel range 1 .. 8;
+
+   function Drum_Pulse_Enabled return Boolean;
+   procedure Set_Drum_Pulse_Enabled (On : Boolean);
+
+   function Drum_Division return Arp_Division_Kind;
+   procedure Set_Drum_Division (D : Arp_Division_Kind);
+
+   procedure Drum_Note_On (Channel  : Drum_Channel;
+                           Key      : MIDI.MIDI_Key;
+                           Velocity : MIDI.MIDI_Data;
+                           Beat_Us  : UInt32;
+                           Now_Us   : UInt64;
+                           Emit     : Arp_Emit_Proc);
+   procedure Drum_Note_Off (Channel : Drum_Channel; Emit : Arp_Emit_Proc);
+
+   function Drum_Active return Boolean;
+   --  Something held, or a pulse still inside its gate. The clock has to
+   --  keep running while this is true so the gate can close.
+
+   procedure Drum_Tick (Now_Us : UInt64; Beat_Us : UInt32;
+                        Emit : Arp_Emit_Proc);
+
+   procedure Drum_Reset (Emit : Arp_Emit_Proc := null);
+
    procedure Arp_Reset (Channel : Arp_Channel;
                         Emit    : Arp_Emit_Proc := null);
    --  Drops all held notes and stops the stepper. Used when a style or

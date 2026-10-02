@@ -223,6 +223,20 @@ package body WNM.Looper is
    -- Stutter and delay state     --
    ---------------------------------
 
+   type Drum_Entry is record
+      Held     : Boolean := False;
+      Sounding : Boolean := False;
+      Key      : UInt8  := 0;
+      Velocity : UInt8  := 0;
+   end record with Pack;
+
+   type Drum_Table is array (Drum_Channel) of Drum_Entry;
+
+   Drum_Gate_Min_Us : constant UInt32 := 15_000;
+   --  Same floor the reference puts on its own gate. Shorter than this and
+   --  a pulse can land inside one audio buffer and be dropped by the
+   --  synth's declick.
+
    History_Capacity : constant := 128;
    --  The reference engine keeps 2048 of these. This has the Steps
    --  overlay's leftovers to work with instead, so it keeps the most
@@ -356,6 +370,12 @@ package body WNM.Looper is
 
       Arp       : Arp_Channel_Array;
       Arp_Seed  : UInt32;
+
+      Drum             : Drum_Table;
+      Drum_Div         : Arp_Division_Kind;
+      Drum_On          : Boolean;
+      Drum_Next_Step_Us : UInt64;
+      Drum_Gate_Off_Us  : UInt64;
 
       --  The Looper menu's cursor. Here with the rest of the looper state
       --  rather than as fields on the menu window, for the same reason
@@ -523,6 +543,14 @@ package body WNM.Looper is
       Held_Reset (P.Held_Scratch);
       P.Arp := (others => (others => <>));
       P.Arp_Seed := 12345;
+
+      P.Drum := (others => (others => <>));
+      P.Drum_Div := D_1_16;
+      P.Drum_On := True;
+      --  On by default: holding a drum pad and having it repeat is how
+      --  this mode is meant to play, and a tap is a single hit either way.
+      P.Drum_Next_Step_Us := 0;
+      P.Drum_Gate_Off_Us := 0;
 
       P.FX.History_Next := 0;
       P.FX.History_Count := 0;
@@ -1899,6 +1927,235 @@ package body WNM.Looper is
    ------------------
    -- Arp_Reset    --
    ------------------
+
+   ------------------
+   -- Arp_Any_Held --
+   ------------------
+
+   function Arp_Any_Held return Boolean is
+   begin
+      for Chan in Arp_Channel loop
+         if Overlay_Ptr.Arp (Chan).Style /= Arp_Off then
+            for E of Overlay_Ptr.Arp (Chan).Held loop
+               if E.Used then
+                  return True;
+               end if;
+            end loop;
+         end if;
+      end loop;
+      return False;
+   end Arp_Any_Held;
+
+   ------------------------------
+   -- Drum sidecar accessors   --
+   ------------------------------
+
+   function Drum_Pulse_Enabled return Boolean
+   is (Overlay_Ptr.Drum_On);
+
+   procedure Set_Drum_Pulse_Enabled (On : Boolean) is
+   begin
+      Overlay_Ptr.Drum_On := On;
+   end Set_Drum_Pulse_Enabled;
+
+   function Drum_Division return Arp_Division_Kind
+   is (Overlay_Ptr.Drum_Div);
+
+   procedure Set_Drum_Division (D : Arp_Division_Kind) is
+   begin
+      Overlay_Ptr.Drum_Div := D;
+   end Set_Drum_Division;
+
+   -----------------
+   -- Drum_Active --
+   -----------------
+
+   function Drum_Active return Boolean is
+   begin
+      if Overlay_Ptr.Drum_Gate_Off_Us /= 0 then
+         return True;
+      end if;
+      for E of Overlay_Ptr.Drum loop
+         if E.Held or else E.Sounding then
+            return True;
+         end if;
+      end loop;
+      return False;
+   end Drum_Active;
+
+   -------------------------
+   -- Drum_Release_All    --
+   -------------------------
+
+   procedure Drum_Release_All (Emit : Arp_Emit_Proc) is
+   begin
+      for Chan in Drum_Channel loop
+         declare
+            E : Drum_Entry renames Overlay_Ptr.Drum (Chan);
+         begin
+            if E.Sounding then
+               if Emit /= null then
+                  Emit (Chan, MIDI.MIDI_Key (E.Key), 0, False);
+               end if;
+               E.Sounding := False;
+            end if;
+         end;
+      end loop;
+      Overlay_Ptr.Drum_Gate_Off_Us := 0;
+   end Drum_Release_All;
+
+   -------------------
+   -- Drum_Note_On  --
+   -------------------
+
+   procedure Drum_Note_On (Channel  : Drum_Channel;
+                           Key      : MIDI.MIDI_Key;
+                           Velocity : MIDI.MIDI_Data;
+                           Beat_Us  : UInt32;
+                           Now_Us   : UInt64;
+                           Emit     : Arp_Emit_Proc)
+   is
+      Step_Us : constant UInt32 :=
+        Division_Us (Overlay_Ptr.Drum_Div, Beat_Us);
+
+      Gate_Us : constant UInt32 :=
+        UInt32'Max (Drum_Gate_Min_Us, Step_Us / 2);
+
+      Was_Idle : constant Boolean := not Drum_Active;
+
+      E : Drum_Entry renames Overlay_Ptr.Drum (Channel);
+   begin
+      E.Held := True;
+      E.Key := UInt8 (Key);
+      E.Velocity := UInt8 (Velocity);
+
+      --  The hit lands now, not on the next grid step, so a pad feels
+      --  like a pad.
+      if Emit /= null then
+         Emit (Channel, Key, Velocity, True);
+      end if;
+      E.Sounding := True;
+
+      Overlay_Ptr.Drum_Gate_Off_Us := Now_Us + UInt64 (Gate_Us);
+
+      if Was_Idle then
+         --  First pad down starts the grid here, so the repeats line up
+         --  with what was played rather than with an older origin.
+         Overlay_Ptr.Drum_Next_Step_Us := Now_Us + UInt64 (Step_Us);
+      end if;
+   end Drum_Note_On;
+
+   --------------------
+   -- Drum_Note_Off  --
+   --------------------
+
+   procedure Drum_Note_Off (Channel : Drum_Channel; Emit : Arp_Emit_Proc) is
+      E : Drum_Entry renames Overlay_Ptr.Drum (Channel);
+
+      Any_Held : Boolean := False;
+   begin
+      E.Held := False;
+
+      if E.Sounding then
+         if Emit /= null then
+            Emit (Channel, MIDI.MIDI_Key (E.Key), 0, False);
+         end if;
+         E.Sounding := False;
+      end if;
+
+      for Other of Overlay_Ptr.Drum loop
+         Any_Held := Any_Held or else Other.Held;
+      end loop;
+
+      if not Any_Held then
+         --  Nothing left holding the grid up, so the next pad down starts
+         --  a fresh one.
+         Overlay_Ptr.Drum_Next_Step_Us := 0;
+         Overlay_Ptr.Drum_Gate_Off_Us := 0;
+      end if;
+   end Drum_Note_Off;
+
+   ----------------
+   -- Drum_Tick  --
+   ----------------
+
+   procedure Drum_Tick (Now_Us : UInt64; Beat_Us : UInt32;
+                        Emit : Arp_Emit_Proc)
+   is
+      Step_Us : constant UInt32 :=
+        UInt32'Max (1, Division_Us (Overlay_Ptr.Drum_Div, Beat_Us));
+
+      Gate_Us : constant UInt32 :=
+        UInt32'Max (Drum_Gate_Min_Us, Step_Us / 2);
+
+      Any_Held : Boolean := False;
+   begin
+      --  Close the gate on the last pulse first, same order as the
+      --  reference's tickArp.
+      if Overlay_Ptr.Drum_Gate_Off_Us /= 0
+        and then Now_Us >= Overlay_Ptr.Drum_Gate_Off_Us
+      then
+         Drum_Release_All (Emit);
+      end if;
+
+      for E of Overlay_Ptr.Drum loop
+         Any_Held := Any_Held or else E.Held;
+      end loop;
+
+      if not Overlay_Ptr.Drum_On or else not Any_Held then
+         return;
+      end if;
+
+      if Overlay_Ptr.Drum_Next_Step_Us = 0
+        or else Now_Us < Overlay_Ptr.Drum_Next_Step_Us
+      then
+         return;
+      end if;
+
+      --  A step re-strikes everything held, together. No styles: that is
+      --  what the sidecar is.
+      Drum_Release_All (Emit);
+
+      for Chan in Drum_Channel loop
+         declare
+            E : Drum_Entry renames Overlay_Ptr.Drum (Chan);
+         begin
+            if E.Held then
+               if Emit /= null then
+                  Emit (Chan, MIDI.MIDI_Key (E.Key),
+                        MIDI.MIDI_Data (E.Velocity), True);
+               end if;
+               E.Sounding := True;
+            end if;
+         end;
+      end loop;
+
+      Overlay_Ptr.Drum_Gate_Off_Us := Now_Us + UInt64 (Gate_Us);
+
+      --  Advance onto the grid rather than from now, so a late tick does
+      --  not drag the pulse behind the beat, and catch up if several
+      --  steps went by.
+      loop
+         Overlay_Ptr.Drum_Next_Step_Us :=
+           Overlay_Ptr.Drum_Next_Step_Us + UInt64 (Step_Us);
+         exit when Overlay_Ptr.Drum_Next_Step_Us > Now_Us;
+      end loop;
+   end Drum_Tick;
+
+   -----------------
+   -- Drum_Reset  --
+   -----------------
+
+   procedure Drum_Reset (Emit : Arp_Emit_Proc := null) is
+   begin
+      Drum_Release_All (Emit);
+      for E of Overlay_Ptr.Drum loop
+         E.Held := False;
+         E.Sounding := False;
+      end loop;
+      Overlay_Ptr.Drum_Next_Step_Us := 0;
+      Overlay_Ptr.Drum_Gate_Off_Us := 0;
+   end Drum_Reset;
 
    procedure Arp_Reset (Channel : Arp_Channel;
                         Emit    : Arp_Emit_Proc := null)

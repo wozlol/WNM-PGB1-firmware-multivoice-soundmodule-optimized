@@ -37,6 +37,11 @@ package body WNM.Project is
    is new Project_Load_Broadcast.Register (Project_Load_Callback'Access);
    pragma Unreferenced (Project_Load_Listener);
 
+   procedure Drum_Emit (Channel  : WNM.Looper.Arp_Channel;
+                        Key      : MIDI.MIDI_Key;
+                        Velocity : MIDI.MIDI_Data;
+                        Note_On  : Boolean);
+
    function Track_Pad_Channel (T : Tracks) return MIDI.MIDI_Channel;
    function Track_Pad_Key (T : Tracks) return MIDI.MIDI_Key;
    procedure Looper_Play_Note (Chan     : MIDI.MIDI_Channel;
@@ -2265,6 +2270,45 @@ package body WNM.Project is
       WNM.Looper.Collect_Held_Notes (Track, Looper_Send_Note_Off'Access);
    end Looper_Release;
 
+   ---------------
+   -- Drum_Emit --
+   ---------------
+
+   procedure Drum_Emit (Channel  : WNM.Looper.Arp_Channel;
+                        Key      : MIDI.MIDI_Key;
+                        Velocity : MIDI.MIDI_Data;
+                        Note_On  : Boolean)
+   is
+      Msg : constant MIDI.Message :=
+        (if Note_On
+         then (Kind     => MIDI.Note_On,
+               Chan     => Channel,
+               Key      => Key,
+               Velocity => Velocity)
+         else (Kind     => MIDI.Note_Off,
+               Chan     => Channel,
+               Key      => Key,
+               Velocity => Velocity));
+   begin
+      --  Unlike the note arp, the drum sidecar's pulses ARE what gets
+      --  recorded. A held hi-hat is a hi-hat pattern, and recording only
+      --  the press and release would give a loop one note where the
+      --  player heard sixteen. The note arp stays pre-arp per the spec,
+      --  because changing its style is meant to change how an existing
+      --  loop plays back, which does not apply to a pulse that has no
+      --  style to change.
+      declare
+         Captured : constant Boolean :=
+           WNM.Looper.Capture
+             (WNM.Time.Clock, WNM.Looper.To_Loop_Event (Msg));
+         pragma Unreferenced (Captured);
+      begin
+         null;
+      end;
+
+      Sound_And_Record (Msg);
+   end Drum_Emit;
+
    --------------
    -- Arp_Emit --
    --------------
@@ -2305,6 +2349,9 @@ package body WNM.Project is
             WNM.Looper.Arp_Tick (WNM.Time.Clock,
                                  HAL.UInt32 (Microseconds_Per_Beat),
                                  Arp_Emit'Access);
+            WNM.Looper.Drum_Tick (WNM.Time.Clock,
+                                  HAL.UInt32 (Microseconds_Per_Beat),
+                                  Drum_Emit'Access);
             WNM.Looper.Stutter_Tick (WNM.Time.Clock, FX_Emit'Access);
             WNM.Looper.Delay_Tick (WNM.Time.Clock, FX_Emit'Access);
       end case;
@@ -2341,11 +2388,21 @@ package body WNM.Project is
       --  ticks for Tick's own auto-finish to ever fire), stopped when
       --  everything is idle. Same Internal_Start/Stop the step
       --  sequencer's own Play_Pause uses.
+      --  Arp_Any_Held and Drum_Active are in here for a reason worth
+      --  keeping: both engines step off this clock, so leaving them out
+      --  meant an armed arp only ever ran while something else happened
+      --  to be driving the transport. An armed arp takes the note it is
+      --  given instead of sounding it, so with no clock the note was
+      --  swallowed and never played, and its note-off arrived with
+      --  nothing to match, which is what made drum pads look dead or
+      --  double-struck.
       if WNM.Looper.Playing
         or else WNM.Looper.Recording
         or else WNM.Looper.Recording_Armed
         or else WNM.Looper.Stutter_Active
         or else WNM.Looper.Delay_Active
+        or else WNM.Looper.Arp_Any_Held
+        or else WNM.Looper.Drum_Active
       then
          if not WNM.MIDI_Clock.Running then
             WNM.MIDI_Clock.Internal_Start;
@@ -2429,6 +2486,7 @@ package body WNM.Project is
          --  forever.
          WNM.Looper.Cancel_Recording;
          WNM.Looper.Stop (Looper_Release'Access);
+         WNM.Looper.Drum_Reset (Drum_Emit'Access);
          WNM.Looper.Clear_Effects (FX_Emit'Access);
       end if;
 
@@ -2714,22 +2772,42 @@ package body WNM.Project is
    --  The same note the step sequencer's own track preview plays.
 
    procedure Looper_Track_Press (Button : Keyboard_Button) is
-      T : constant Tracks := To_Value (Button);
+      T    : constant Tracks := To_Value (Button);
+      Chan : constant MIDI.MIDI_Channel := Track_Pad_Channel (T);
    begin
       Editing_Track := T;
 
       --  Just the track's own CC values, see the spec for why.
       Synchronize_Synth_Settings (T);
 
-      Looper_Play_Note (Track_Pad_Channel (T), Track_Pad_Key (T),
-                        MIDI.MIDI_Data'Last, Note_On => True);
+      if Chan in WNM.Looper.Drum_Channel then
+         --  Through the sidecar, not the note arp: the hit lands now and
+         --  is gated, and holding the pad repeats it. This is the surface
+         --  the spec describes for the track buttons, and it is a
+         --  separate engine from the note arp in the reference too.
+         WNM.Looper.Drum_Note_On
+           (Chan, Track_Pad_Key (T), MIDI.MIDI_Data'Last,
+            HAL.UInt32 (Microseconds_Per_Beat), WNM.Time.Clock,
+            Drum_Emit'Access);
+      else
+         Looper_Play_Note (Chan, Track_Pad_Key (T),
+                           MIDI.MIDI_Data'Last, Note_On => True);
+      end if;
+
+      Sync_Clock_To_Looper;
    end Looper_Track_Press;
 
    procedure Looper_Track_Release (Button : Keyboard_Button) is
-      T : constant Tracks := To_Value (Button);
+      T    : constant Tracks := To_Value (Button);
+      Chan : constant MIDI.MIDI_Channel := Track_Pad_Channel (T);
    begin
-      Looper_Play_Note (Track_Pad_Channel (T), Track_Pad_Key (T),
-                        0, Note_On => False);
+      if Chan in WNM.Looper.Drum_Channel then
+         WNM.Looper.Drum_Note_Off (Chan, Drum_Emit'Access);
+      else
+         Looper_Play_Note (Chan, Track_Pad_Key (T), 0, Note_On => False);
+      end if;
+
+      Sync_Clock_To_Looper;
    end Looper_Track_Release;
 
    ---------------------------

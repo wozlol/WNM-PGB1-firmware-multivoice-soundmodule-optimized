@@ -81,6 +81,27 @@ package body WNM.Project.Storage.File_Out is
       This.Push (Out_UInt (T));
    end Start_Looper_Track;
 
+   -----------------------
+   -- Start_Looper_Arp  --
+   -----------------------
+
+   procedure Start_Looper_Arp (This : in out Instance;
+                               C    : WNM.Looper.Arp_Channel)
+   is
+   begin
+      This.Push (Looper_Arp);
+      This.Push (Out_UInt (C));
+   end Start_Looper_Arp;
+
+   ------------------------
+   -- Start_Looper_Drum  --
+   ------------------------
+
+   procedure Start_Looper_Drum (This : in out Instance) is
+   begin
+      This.Push (Looper_Drum);
+   end Start_Looper_Drum;
+
    --------------------------
    -- Start_Track_Settings --
    --------------------------
@@ -216,6 +237,18 @@ package body WNM.Project.Storage.File_Out is
 
    procedure Push (This : in out Instance; A : Looper_Track_Settings) is
       procedure Push_G is new Push_Gen (Looper_Track_Settings);
+   begin
+      Push_G (Parent (This), A);
+   end Push;
+
+   procedure Push (This : in out Instance; A : Looper_Arp_Settings) is
+      procedure Push_G is new Push_Gen (Looper_Arp_Settings);
+   begin
+      Push_G (Parent (This), A);
+   end Push;
+
+   procedure Push (This : in out Instance; A : Looper_Drum_Settings) is
+      procedure Push_G is new Push_Gen (Looper_Drum_Settings);
    begin
       Push_G (Parent (This), A);
    end Push;
