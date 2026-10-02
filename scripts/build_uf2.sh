@@ -16,3 +16,12 @@ OUT="$REPO_ROOT/builds/WNM-PGB1-$(date +'%Y%m%d-%H%M').uf2"
 
 picotool uf2 convert "$ELF" "$OUT"
 echo "Built: $OUT"
+
+if [ "${1:-}" = "--flash" ]; then
+  # 1000 kHz, not the 5000 the probe advertises: at 5000 this link
+  # intermittently fails with "Failed to connect multidrop rp2040.dap0".
+  openocd -f interface/cmsis-dap.cfg \
+          -c "adapter speed 1000" \
+          -f target/rp2040.cfg \
+          -c "program $ELF verify reset exit"
+fi
